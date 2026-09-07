@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "oplix-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "onsevoit-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "../onsevoit", "run", "dev"],
+      "port": 5174,
+      "autoPort": true
+    }
+  ]
+}
