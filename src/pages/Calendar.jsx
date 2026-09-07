@@ -1,25 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { anilistFetch, Q_SEARCH } from '../lib/anilist'
+import { searchMedia, fetchAiringAnime, computeAiringOccurrence } from '../lib/catalog'
 import ScrollToTop from '../components/ScrollToTop'
-
-/* ═══════════════════════════════════════════════════════════
-   QUERY — sans notYetAired = toute la semaine
-═══════════════════════════════════════════════════════════ */
-const Q_WEEK = `
-query($page: Int, $from: Int, $to: Int) {
-  Page(page: $page, perPage: 50) {
-    pageInfo { hasNextPage }
-    airingSchedules(airingAt_greater: $from, airingAt_lesser: $to, sort: TIME) {
-      id episode airingAt
-      media {
-        id isAdult
-        title { romaji english }
-        coverImage { extraLarge large color }
-        bannerImage genres averageScore format episodes popularity status
-      }
-    }
-  }
-}`
 
 /* ═══════════════════════════════════════════════════════════
    CONSTANTES
@@ -71,19 +52,20 @@ function describeNextAiring(media, now) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   FETCH — plage lun→dim, toutes pages
+   FETCH — squelette hebdo approximatif (créneau MAL, pas un
+   calendrier épisode par épisode exact comme avant avec AniList)
 ═══════════════════════════════════════════════════════════ */
-async function fetchWeek(monday) {
-  const from = Math.floor(monday.getTime() / 1000) - 1
-  const to   = Math.floor(addDays(monday, 7).getTime() / 1000)
-  let page = 1, all = [], hasNext = true
-  while (hasNext && page <= 10) {
-    const data = await anilistFetch(Q_WEEK, { page, from, to })
-    all = all.concat(data.Page.airingSchedules.filter(s => !s.media.isAdult))
-    hasNext = data.Page.pageInfo.hasNextPage
-    page++
+function occurrencesForWeek(allAiring, monday) {
+  const to = addDays(monday, 7)
+  const items = []
+  for (const media of allAiring) {
+    if (media.isAdult) continue
+    const occ = computeAiringOccurrence(media, monday)
+    if (occ && occ.airingAt < Math.floor(to.getTime() / 1000)) {
+      items.push({ id: `${media.id}-${occ.airingAt}`, episode: occ.episode, airingAt: occ.airingAt, media })
+    }
   }
-  return all
+  return items.sort((a, b) => a.airingAt - b.airingAt)
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -144,6 +126,7 @@ function EpRow({ item, now, onOpen }) {
    ROOT — un jour à la fois, onglets, pas d'empilement
 ═══════════════════════════════════════════════════════════ */
 export default function Calendar({ onOpenModal }) {
+  const [allAiring,   setAllAiring]   = useState([])
   const [items,       setItems]       = useState([])
   const [loading,     setLoading]     = useState(true)
   const [weekStart,   setWeekStart]   = useState(() => getMonday(new Date()))
@@ -165,9 +148,16 @@ export default function Calendar({ onOpenModal }) {
   }, [])
 
   useEffect(() => {
-    setLoading(true); setItems([])
-    fetchWeek(weekStart).then(setItems).catch(console.error).finally(() => setLoading(false))
-  }, [weekStart])
+    setLoading(true)
+    fetchAiringAnime()
+      .then(list => { setAllAiring(list); setItems(occurrencesForWeek(list, weekStart)) })
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, []) // eslint-disable-line
+
+  useEffect(() => {
+    if (allAiring.length) setItems(occurrencesForWeek(allAiring, weekStart))
+  }, [weekStart, allAiring])
 
   useEffect(() => {
     const h = e => {
@@ -182,8 +172,8 @@ export default function Calendar({ onOpenModal }) {
     if (query.trim().length < 2) { setSearchResults([]); return }
     setSearching(true)
     const t = setTimeout(() => {
-      anilistFetch(Q_SEARCH, { search: query.trim(), type: 'ANIME', perPage: 6, isAdult: false, sort: ['SEARCH_MATCH'] })
-        .then(data => setSearchResults(data.Page.media))
+      searchMedia({ search: query.trim(), type: 'ANIME', perPage: 6, isAdult: false, sort: ['SEARCH_MATCH'] })
+        .then(({ media }) => setSearchResults(media))
         .catch(console.error)
         .finally(() => setSearching(false))
     }, 350)

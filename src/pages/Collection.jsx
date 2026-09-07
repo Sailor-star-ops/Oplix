@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import { anilistFetch, Q_SEARCH } from '../lib/anilist'
+import { searchMedia } from '../lib/catalog'
 import ScrollToTop from '../components/ScrollToTop'
 
 const STATUS_TABS = [
@@ -381,8 +381,8 @@ function CollectionDetail({ collection, onBack, onOpenModal, onDelete, onToggleP
     if (q.trim().length < 2) { setResults([]); return }
     setSearching(true)
     try {
-      const data = await anilistFetch(Q_SEARCH, { search: q, type: 'ANIME', perPage: 8, isAdult: false, sort: ['SEARCH_MATCH'] })
-      setResults(data.Page.media)
+      const { media } = await searchMedia({ search: q, type: 'ANIME', perPage: 8, isAdult: false, sort: ['SEARCH_MATCH'] })
+      setResults(media)
     } catch (e) { console.error(e) }
     setSearching(false)
   }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabase";
-import { fetchAllByIds } from "../lib/anilist";
+import { fetchAllByIds } from "../lib/catalog";
 import ScrollToTop from "../components/ScrollToTop";
 
 const pad6 = (n) => String(n || 0).padStart(6, "0");

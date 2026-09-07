@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
-import { buildEpisodeList } from '../lib/anilist'
+import { buildEpisodeList } from '../lib/catalog'
 import Modal from './Modal'
 
 /* ─── Géométrie du donut (secteurs façon roue GTA) ──────────────────

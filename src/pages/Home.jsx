@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { anilistFetch, Q_TRENDING, Q_SEASONAL, Q_SEARCH, getSeason, stripHtml } from '../lib/anilist'
+import { fetchTrending, fetchSeasonal, searchMedia, getSeason, stripHtml } from '../lib/catalog'
 import ScrollToTop from '../components/ScrollToTop'
 
 /* ─── Constantes ──────────────────────────────────────────────────── */
@@ -144,7 +144,14 @@ function HeroSection({ heroAnimes, heroIndex, setHeroIndex, onOpenModal }) {
   if (!hero) return null
   return (
     <div className="hero-section">
-      <img src={hero.bannerImage} className="hero-bg" alt="" />
+      {/* Pas de bannerImage dédiée (source disparue avec AniList) : on génère
+          un fond depuis la cover (flou + assombri) plutôt que de l'étirer nette. */}
+      <img
+        src={hero.coverImage?.extraLarge}
+        className="hero-bg"
+        style={{ filter: 'blur(32px) brightness(0.55)', transform: 'scale(1.2)' }}
+        alt=""
+      />
       <div className="hero-gradient" />
       <div className="hero-content">
         <span className="badge-hero">Tendance</span>
@@ -259,14 +266,15 @@ function Home({ onOpenModal, watchlist = [], user, stats }) {
     async function fetchData() {
       try {
         const { season, year } = getSeason()
-        const [trendData, seasonData] = await Promise.all([
-          anilistFetch(Q_TRENDING, { page: 1, perPage: 50 }),
-          anilistFetch(Q_SEASONAL, { season, year }),
+        const [trendList, seasonList] = await Promise.all([
+          fetchTrending({ page: 1, perPage: 50 }),
+          fetchSeasonal({ season, year }),
         ])
-        const trendList = trendData.Page.media
         setTrending(trendList)
-        setSeasonal(seasonData.Page.media)
-        setHeroAnimes(trendList.filter(a => a.bannerImage).slice(0, 5))
+        setSeasonal(seasonList)
+        // Plus de bannerImage dédiée (source disparue avec AniList) : le hero
+        // génère son propre fond depuis la cover, donc plus besoin de filtrer dessus.
+        setHeroAnimes(trendList.slice(0, 5))
       } catch (e) { console.error(e) }
       setLoading(false)
     }
@@ -276,11 +284,11 @@ function Home({ onOpenModal, watchlist = [], user, stats }) {
   useEffect(() => {
     if (!dominantGenre) return
     setGenreLoading(true)
-    anilistFetch(Q_SEARCH, {
+    searchMedia({
       type: 'ANIME', perPage: 20, isAdult: false,
-      genre: dominantGenre, sort: ['POPULARITY_DESC'],
+      genre_in: [dominantGenre], sort: ['POPULARITY_DESC'],
     })
-      .then(data => setGenreRecs(data.Page.media.filter(a => !watchlistIds.has(a.id))))
+      .then(({ media }) => setGenreRecs(media.filter(a => !watchlistIds.has(a.id))))
       .catch(console.error)
       .finally(() => setGenreLoading(false))
   }, [dominantGenre]) // eslint-disable-line

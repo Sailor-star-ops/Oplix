@@ -6,7 +6,7 @@ Tracker anime/manga (à terme : le meilleur, cible = millions d'utilisateurs). I
 
 - **React 18 + Vite**, pas de TypeScript, pas de framework de routing (navigation par état `tab` dans [src/App.jsx](src/App.jsx), pas d'URLs de pages — sauf `?c=` et `?p=` pour les vues publiques partagées).
 - **Supabase** (`src/lib/supabase.js`) : auth, Postgres (table `profiles`, `watchlist`, `friendships`, `collections`/`collection_items`), Storage (bucket `avatars` pour tout ce qui est image uploadée — avatars, bannières).
-- **AniList GraphQL** (`src/lib/anilist.js`) : seule source de métadonnées anime/manga (titres, covers, épisodes, studios, genres...). Pas de backend à nous — tout passe par Supabase + AniList directement depuis le client.
+- **Catalogue interne** (`src/lib/catalog.js`, tables Supabase `catalog_anime`/`catalog_manga`) : source de métadonnées anime/manga possédée par Oplix, alimentée par `scripts/sync-anime.mjs` (anime-offline-database + API MAL v2) et `scripts/sync-manga-wikidata.mjs` (Wikidata), via GitHub Actions (`.github/workflows/sync-catalog.yml`). AniList a explicitement refusé son API à un tracker concurrent — voir JOURNAL.md pour le contexte. Le client lit directement Supabase (clé anon, lecture seule) ; seul le script d'import écrit, via la clé service role (jamais exposée au client). Champs sans source propre trouvée (personnages, staff détaillé, trailer, recommandations, liens externes) : absents, les composants (Modal.jsx) masquent ces sections si vides plutôt que de planter.
 - Une seule feuille de style globale : [src/App.css](src/App.css) (~3900 lignes). Pas de CSS modules, pas de Tailwind — classes BEM-ish (`.ph__banner`, `.pfav__cover`, etc.).
 
 ## Conventions observées

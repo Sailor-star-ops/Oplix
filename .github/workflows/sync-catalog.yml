@@ -1,0 +1,34 @@
+name: Sync catalogue anime/manga
+
+on:
+  schedule:
+    # Chaque lundi à 4h UTC — pas besoin de plus fréquent, le squelette
+    # (dataset + Wikidata) ne change pas vite, et la fraîcheur fine
+    # (calendrier de diffusion) se limite de toute façon aux saisons en cours.
+    - cron: "0 4 * * 1"
+  workflow_dispatch: {} # permet aussi un lancement manuel depuis l'onglet Actions
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Sync anime (dataset + MAL)
+        run: node scripts/sync-anime.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
+
+      - name: Sync manga (Wikidata)
+        run: node scripts/sync-manga-wikidata.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

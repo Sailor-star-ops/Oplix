@@ -13,7 +13,7 @@ import PublicCollection from "./pages/Publiccollection";
 import PublicProfile from "./pages/Publicprofile";
 import Social from "./pages/Social";
 import { supabase } from "./lib/supabase";
-import { fetchAllByIds, calcStats } from "./lib/anilist";
+import { fetchAllByIds, calcStats } from "./lib/catalog";
 import "./App.css";
 
 const SOCIAL_TABS = ["social"];

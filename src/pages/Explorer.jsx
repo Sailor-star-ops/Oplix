@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  anilistFetch, Q_SEARCH,
+  searchMedia,
   GENRES_ANIME, GENRES_MANGA,
   ANIME_FORMATS, MANGA_FORMATS,
   STATUS_OPTIONS, SORT_OPTIONS,
   currentAnilistYear,
-} from '../lib/anilist'
+} from '../lib/catalog'
 import ScrollToTop from '../components/ScrollToTop'
 
 const PER_PAGE = 24
@@ -120,7 +120,7 @@ function Explorer({ onOpenModal, initialQuery }) {
     if (filters.genres.length) vars.genre_in = filters.genres
     if (filters.formats.length) vars.format_in = filters.formats
     if (filters.status) vars.status = filters.status
-    if (filters.year) vars.year = `${filters.year}%`
+    if (filters.year) vars.year = filters.year
     return vars
   }, [query, filters])
 
@@ -130,11 +130,11 @@ function Explorer({ onOpenModal, initialQuery }) {
     setError(false)
     setSearched(true)
     try {
-      const data = await anilistFetch(Q_SEARCH, buildVars(targetPage))
+      const { media, pageInfo } = await searchMedia(buildVars(targetPage))
       if (myId !== requestId.current) return // une recherche plus récente est partie entre-temps
-      setResults(prev => append ? [...prev, ...data.Page.media] : data.Page.media)
-      setHasNextPage(data.Page.pageInfo.hasNextPage)
-      setTotal(data.Page.pageInfo.total)
+      setResults(prev => append ? [...prev, ...media] : media)
+      setHasNextPage(pageInfo.hasNextPage)
+      setTotal(pageInfo.total)
       setPage(targetPage)
     } catch (e) {
       console.error('Explorer search error:', e)

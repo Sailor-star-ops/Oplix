@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   stripHtml, formatDuration,
   FORMAT_LABELS, STATUS_LABELS, SEASON_LABELS, SOURCE_LABELS
-} from '../lib/anilist'
+} from '../lib/catalog'
 
 const relTypeLabel = t => ({
   SEQUEL: 'Suite', PREQUEL: 'Préquelle', ALTERNATIVE: 'Alternatif',
@@ -91,10 +91,18 @@ function Modal({ anime, onClose }) {
 
         {/* ─── HERO (hauteur fixe, pas de scroll) ─── */}
         <div className="mi__hero">
+          {/* Pas de bannerImage dédiée (source disparue avec AniList) : fond
+              généré depuis la cover (flou) plutôt qu'étirée nette. */}
           <div
             className="mi__hero-bg"
-            style={anime.bannerImage
-              ? { backgroundImage: `url(${anime.bannerImage})` }
+            style={anime.coverImage?.extraLarge
+              ? {
+                  backgroundImage: `url(${anime.coverImage.extraLarge})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                  filter: 'blur(28px) brightness(0.6)',
+                  transform: 'scale(1.15)',
+                }
               : { background: `linear-gradient(135deg, ${ac}30 0%, #0d0d0d 100%)` }
             }
           />
