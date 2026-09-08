@@ -247,7 +247,9 @@ function Modal({ anime, onClose }) {
                 </div>
                 {anime.studios?.nodes?.length > 0 && (
                   <div className="mi__block">
-                    <SectionTitle icon="fa-building">Studios</SectionTitle>
+                    <SectionTitle icon={anime.type === 'MANGA' ? 'fa-pen-nib' : 'fa-building'}>
+                      {anime.type === 'MANGA' ? 'Auteur(s)' : 'Studios'}
+                    </SectionTitle>
                     <div className="mi__chip-row">
                       {anime.studios.nodes.map(s => (
                         <span key={s.id} className="mi__chip" style={{ borderColor: `${ac}35`, color: ac }}>
