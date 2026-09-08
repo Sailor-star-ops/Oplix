@@ -6,14 +6,22 @@ on:
     # (dataset + Wikidata) ne change pas vite, et la fraîcheur fine
     # (calendrier de diffusion) se limite de toute façon aux saisons en cours.
     - cron: "0 4 * * 1"
-  workflow_dispatch: {} # permet aussi un lancement manuel depuis l'onglet Actions
+  workflow_dispatch: # permet aussi un lancement manuel depuis l'onglet Actions
+    inputs:
+      target:
+        description: "Quoi synchroniser"
+        type: choice
+        default: both
+        options: [both, anime, manga]
 
 jobs:
   # Deux jobs indépendants (pas un seul avec deux steps séquentiels) : les deux
   # scripts ont maintenant chacun leur propre phase d'enrichissement MAL
-  # (~1 req/s, plusieurs heures) — les lancer en parallèle sur deux runners
-  # évite qu'un run manuel ciblé sur l'un ne rejoue inutilement l'autre.
+  # (~1 req/s, plusieurs heures) — les lancer en parallèle sur deux runners,
+  # avec un input pour cibler un seul des deux sans rejouer l'autre inutilement
+  # (le cron hebdo, lui, n'a pas d'input donc `target` est vide -> les deux tournent).
   sync-anime:
+    if: github.event.inputs.target == '' || github.event.inputs.target == 'both' || github.event.inputs.target == 'anime'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +40,7 @@ jobs:
           MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
 
   sync-manga:
+    if: github.event.inputs.target == '' || github.event.inputs.target == 'both' || github.event.inputs.target == 'manga'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
