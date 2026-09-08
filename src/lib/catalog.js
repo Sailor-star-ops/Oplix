@@ -103,7 +103,15 @@ function toMediaShape(row, mediaType) {
     isAdult: row.nsfw_level === "black",
     nextAiringEpisode: isAnime ? computeNextAiring(row) : null,
     trailer: null,
-    studios: { nodes: (isAnime ? row.studios || [] : []).map((name) => ({ id: name, name, isAnimationStudio: true })) },
+    // Pas de "studio" côté manga (pas de source) — on réutilise ce même
+    // champ pour l'auteur (Modal.jsx adapte le titre de section selon le type).
+    studios: {
+      nodes: (isAnime ? row.studios || [] : row.authors || []).map((name) => ({
+        id: name,
+        name,
+        isAnimationStudio: isAnime,
+      })),
+    },
     externalLinks: [],
     streamingEpisodes: [],
     recommendations: { nodes: [] },
@@ -249,6 +257,11 @@ const SORT_MAP = {
   SEARCH_MATCH: ["popularity", false],
 };
 
+// catalog_manga n'a ni `popularity` ni `score` (Wikidata ne fournit aucune
+// des deux) — trier dessus fait planter la requête Postgres (colonne
+// inexistante). Seuls start_date/title_romaji existent des deux côtés.
+const MANGA_SORTABLE_COLUMNS = new Set(["start_date", "title_romaji"]);
+
 /* Remplace Q_SEARCH — recherche multi-critères utilisée par Explorer
    (filtres complets), Home (genre dominant), Collection et Calendar
    (recherche texte simple). */
@@ -282,7 +295,11 @@ export async function searchMedia({
   if (year) q = q.gte("start_date", `${year}-01-01`).lte("start_date", `${year}-12-31`);
   if (type === "ANIME" && isAdult === false) q = q.or("nsfw_level.is.null,nsfw_level.neq.black");
 
-  const [col, asc] = SORT_MAP[sort?.[0]] || ["popularity", false];
+  let [col, asc] = SORT_MAP[sort?.[0]] || ["popularity", false];
+  if (type === "MANGA" && !MANGA_SORTABLE_COLUMNS.has(col)) {
+    col = "title_romaji";
+    asc = true;
+  }
   q = q.order(col, { ascending: asc, nullsFirst: false }).range((page - 1) * perPage, page * perPage - 1);
 
   const { data, error, count } = await q;
