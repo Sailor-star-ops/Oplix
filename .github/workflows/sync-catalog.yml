@@ -9,7 +9,11 @@ on:
   workflow_dispatch: {} # permet aussi un lancement manuel depuis l'onglet Actions
 
 jobs:
-  sync:
+  # Deux jobs indépendants (pas un seul avec deux steps séquentiels) : les deux
+  # scripts ont maintenant chacun leur propre phase d'enrichissement MAL
+  # (~1 req/s, plusieurs heures) — les lancer en parallèle sur deux runners
+  # évite qu'un run manuel ciblé sur l'un ne rejoue inutilement l'autre.
+  sync-anime:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,8 +31,20 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
 
-      - name: Sync manga (Wikidata)
+  sync-manga:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Sync manga (Wikidata + MAL)
         run: node scripts/sync-manga-wikidata.mjs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
