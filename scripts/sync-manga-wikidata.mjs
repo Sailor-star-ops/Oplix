@@ -97,8 +97,14 @@ async function main() {
   console.log(`${bindings.length} lignes brutes reçues.`);
 
   const grouped = groupByItem(bindings);
-  const rows = grouped.map(toRow).filter(Boolean);
-  console.log(`${rows.length} manga exploitables (titre + ID présents) sur ${grouped.length} items Wikidata.`);
+  const rawRows = grouped.map(toRow).filter(Boolean);
+  // Deux items Wikidata distincts (ex: l'œuvre et la série) peuvent partager le
+  // même ID AniList/MAL — Postgres refuse un ON CONFLICT en double dans le même
+  // batch, donc on déduplique par id avant d'upserter (on garde la 1ère occurrence).
+  const byId = new Map();
+  for (const row of rawRows) if (!byId.has(row.id)) byId.set(row.id, row);
+  const rows = [...byId.values()];
+  console.log(`${rows.length} manga exploitables (titre + ID présents) sur ${grouped.length} items Wikidata (${rawRows.length - rows.length} doublons d'ID fusionnés).`);
 
   const withAnilistId = rows.filter((r) => r.id < 900_000_000).length;
   console.log(`  dont ${withAnilistId} avec un croisement AniList, ${rows.length - withAnilistId} en ID interne Oplix.`);

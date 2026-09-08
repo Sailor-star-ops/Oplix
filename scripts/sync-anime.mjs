@@ -10,11 +10,16 @@
 
 import { supabaseAdmin, sleep, upsertInChunks } from "./lib/supabaseAdmin.mjs";
 
+// URL stable : redirige toujours vers l'asset de la dernière release
+// (le tag de version change à chaque publication, ex. "2026-27").
 const DATASET_URL =
-  "https://raw.githubusercontent.com/manami-project/anime-offline-database/master/anime-offline-database.json";
+  "https://github.com/manami-project/anime-offline-database/releases/latest/download/anime-offline-database-minified.json";
 
 const MAL_CLIENT_ID = process.env.MAL_CLIENT_ID;
 const MAL_RATE_LIMIT_MS = 1100; // ~1 req/s, convention communautaire non-officielle
+// SYNC_LIMIT=20 node scripts/sync-anime.mjs -> pour tester rapidement le pipeline
+// avant de lancer l'import complet (qui prend plusieurs heures à ~1 req/s vers MAL).
+const SYNC_LIMIT = process.env.SYNC_LIMIT ? parseInt(process.env.SYNC_LIMIT, 10) : null;
 
 // anime-offline-database utilise un statut différent de l'enum AniList
 // (à vérifier/ajuster si le premier run signale des valeurs inconnues).
@@ -90,26 +95,55 @@ async function importDataset() {
   const entries = json.data || [];
   console.log(`${entries.length} entrées dans le dataset.`);
 
-  const rows = entries.map(toRow).filter(Boolean);
+  let rows = entries.map(toRow).filter(Boolean);
   console.log(`${rows.length} entrées avec un ID AniList exploitable (${entries.length - rows.length} sautées).`);
+  if (SYNC_LIMIT) {
+    rows = rows.slice(0, SYNC_LIMIT);
+    console.log(`SYNC_LIMIT actif : réduit à ${rows.length} entrées pour ce run de test.`);
+  }
 
   const done = await upsertInChunks("catalog_anime", rows);
   console.log(`Phase 1 (squelette) : ${done}/${rows.length} lignes upsertées dans catalog_anime.`);
   return rows;
 }
 
-async function fetchMalFields(malId) {
+// MAL renvoie parfois une date partielle ("2016-05" ou "2011") quand le jour
+// ou le mois exact est inconnu — Postgres (colonne `date`) refuse ce format,
+// donc on complète au 1er du mois/de l'année plutôt que de planter.
+function normalizeDate(d) {
+  if (!d) return null;
+  const parts = d.split("-");
+  while (parts.length < 3) parts.push("01");
+  return parts.join("-");
+}
+
+async function fetchMalFields(malId, attempt = 1) {
   const fields =
     "synopsis,genres,rating,source,broadcast,start_date,end_date,related_anime,nsfw,mean,popularity,rank,num_list_users";
-  const res = await fetch(`https://api.myanimelist.net/v2/anime/${malId}?fields=${fields}`, {
-    headers: { "X-MAL-CLIENT-ID": MAL_CLIENT_ID },
-  });
+  let res;
+  try {
+    res = await fetch(`https://api.myanimelist.net/v2/anime/${malId}?fields=${fields}`, {
+      headers: { "X-MAL-CLIENT-ID": MAL_CLIENT_ID },
+    });
+  } catch (networkErr) {
+    if (attempt < 2) {
+      await sleep(3000);
+      return fetchMalFields(malId, attempt + 1);
+    }
+    throw networkErr;
+  }
   if (res.status === 401 || res.status === 403) {
     throw new Error(
       "MAL a refusé la requête (401/403) — vérifie MAL_CLIENT_ID dans .env et que l'appli est bien enregistrée sur myanimelist.net/apiconfig/create.",
     );
   }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    if (attempt < 2 && res.status >= 500) {
+      await sleep(3000);
+      return fetchMalFields(malId, attempt + 1);
+    }
+    throw new Error(`HTTP ${res.status}`);
+  }
   return res.json();
 }
 
@@ -133,8 +167,8 @@ async function enrichFromMal(rows) {
         age_rating: data.rating || null,
         nsfw_level: data.nsfw || null,
         source_type: data.source ? data.source.toUpperCase() : null,
-        start_date: data.start_date || null,
-        end_date: data.end_date || null,
+        start_date: normalizeDate(data.start_date),
+        end_date: normalizeDate(data.end_date),
         broadcast_day: data.broadcast?.day_of_the_week || null,
         broadcast_time: data.broadcast?.start_time || null,
         score: data.mean ?? row.score ?? null,
