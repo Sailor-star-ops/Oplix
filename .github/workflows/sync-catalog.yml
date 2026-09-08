@@ -1,4 +1,5 @@
 name: Sync catalogue anime/manga
+# test push direct via l'éditeur web GitHub (diagnostic indexation Actions)
 
 on:
   schedule:
