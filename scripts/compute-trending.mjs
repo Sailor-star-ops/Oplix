@@ -95,7 +95,13 @@ const quality = (row) => (row.score > 0 ? (row.score - 6.5) * 0.45 : 0);
 // place gagne autant qu'une qui passe de la 30e à la 20e. C'est l'ampleur
 // relative du mouvement qui fait la tendance, pas la position absolue.
 function momentum(row, prev) {
-  if (!prev) return null;
+  // Pas de mouvement mesuré tant que les DEUX relevés ne portent pas un volume
+  // de membres. `members` n'est écrit que par enrich-mal.mjs, donc sa présence
+  // garantit un rang MyAnimeList frais. Sans cette garde, pendant le rattrapage
+  // de l'enrichissement, un rang périmé (importé il y a des semaines) remplacé
+  // par le rang du jour passerait pour une progression — des milliers de
+  // fausses « tendances » la nuit suivante.
+  if (!prev || !(prev.members > 0) || !(row.members > 0)) return null;
   let m = 0;
   if (prev.popularity > 0 && row.popularity > 0) {
     m += Math.max(-1, Math.min(1, (prev.popularity - row.popularity) / prev.popularity)) * 6;
