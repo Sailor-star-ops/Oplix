@@ -18,6 +18,7 @@
 // la phase 2 avant de lancer l'enrichissement complet (~8000 titres, ~2h20 à ~1 req/s).
 
 import { supabaseAdmin, sleep, upsertInChunks } from "./lib/supabaseAdmin.mjs";
+import { titleKey } from "./lib/ids.mjs";
 
 const MAL_CLIENT_ID = process.env.MAL_CLIENT_ID;
 const MAL_RATE_LIMIT_MS = 1100; // ~1 req/s, même convention que sync-anime.mjs
@@ -38,7 +39,12 @@ const SPARQL_ENDPOINT = "https://query.wikidata.org/sparql";
 // Pas de GROUP_CONCAT ici (fragile à combiner avec le service de labels) —
 // on récupère des lignes à plat (produit croisé possible si auteur ET
 // éditeur sont multi-valués) et on regroupe côté JS par item.
-const QUERY = `
+//
+// Deux requêtes séparées plutôt qu'une seule élargie : chaque propriété
+// multi-valuée ajoutée multiplie le nombre de lignes du produit croisé, et
+// dépasser la limite ferait silencieusement disparaître des manga entiers.
+// Le genre et le pays sont donc récupérés à part, puis fusionnés par item.
+const QUERY_CORE = `
 SELECT ?item ?itemLabel ?malId ?anilistId ?authorLabel ?publisherLabel ?startDate WHERE {
   { ?item wdt:P4087 ?malId. } UNION { ?item wdt:P8731 ?anilistId. }
   OPTIONAL { ?item wdt:P4087 ?malId. }
@@ -48,7 +54,19 @@ SELECT ?item ?itemLabel ?malId ?anilistId ?authorLabel ?publisherLabel ?startDat
   OPTIONAL { ?item wdt:P577 ?startDate. }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "fr,en". }
 }
-LIMIT 50000
+LIMIT 200000
+`;
+
+// P136 = genre, P495 = pays d'origine, P1476 = titre (souvent en japonais).
+const QUERY_EXTRA = `
+SELECT ?item ?genreLabel ?countryCode ?title WHERE {
+  { ?item wdt:P4087 []. } UNION { ?item wdt:P8731 []. }
+  OPTIONAL { ?item wdt:P136 ?genre. }
+  OPTIONAL { ?item wdt:P495 ?country. ?country wdt:P297 ?countryCode. }
+  OPTIONAL { ?item wdt:P1476 ?title. }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "fr,en". }
+}
+LIMIT 200000
 `;
 
 // Plage réservée pour les manga sans croisement AniList sur Wikidata,
@@ -61,17 +79,37 @@ function qidToInternalId(itemUri) {
   return m ? INTERNAL_ID_OFFSET + parseInt(m[1], 10) : null;
 }
 
-async function runQuery() {
-  const url = `${SPARQL_ENDPOINT}?query=${encodeURIComponent(QUERY)}&format=json`;
+async function runQuery(query, label) {
+  const url = `${SPARQL_ENDPOINT}?query=${encodeURIComponent(query)}&format=json`;
   const res = await fetch(url, {
     headers: {
       Accept: "application/sparql-results+json",
-      "User-Agent": "Oplix-catalog-sync/1.0 (script d'import interne, usage non commercial des données Wikidata)",
+      "User-Agent": "Oplix-catalog-sync/1.0 (+https://oplix.app) — données Wikidata sous licence CC0",
     },
   });
-  if (!res.ok) throw new Error(`Échec requête SPARQL Wikidata : HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`Échec requête SPARQL Wikidata (${label}) : HTTP ${res.status}`);
   const json = await res.json();
-  return json.results.bindings;
+  const rows = json.results.bindings;
+  // Atteindre la limite signifie que Wikidata a tronqué : on le signale plutôt
+  // que de laisser croire à un import complet.
+  if (rows.length >= 200000) {
+    console.warn(`ATTENTION (${label}) : limite de 200000 lignes atteinte, résultats probablement tronqués.`);
+  }
+  return rows;
+}
+
+// Genres, pays d'origine et titre natif, indexés par item Wikidata.
+function collectExtras(bindings) {
+  const byItem = new Map();
+  for (const b of bindings) {
+    const uri = b.item.value;
+    if (!byItem.has(uri)) byItem.set(uri, { genres: new Set(), country: null, title: null });
+    const e = byItem.get(uri);
+    if (b.genreLabel?.value) e.genres.add(b.genreLabel.value);
+    if (b.countryCode?.value && !e.country) e.country = b.countryCode.value;
+    if (b.title?.value && !e.title) e.title = b.title.value;
+  }
+  return byItem;
 }
 
 function groupByItem(bindings) {
@@ -99,16 +137,21 @@ function groupByItem(bindings) {
   return [...byItem.values()];
 }
 
-function toRow(entry) {
+function toRow(entry, extras) {
   const id = entry.anilistId || qidToInternalId(entry.itemUri);
   if (!id || !entry.title) return null;
+  const x = extras?.get(entry.itemUri);
   return {
     id,
     mal_id: entry.malId || null,
     title_romaji: entry.title,
+    title_native: x?.title || null,
     authors: [...entry.authors],
     publisher: entry.publisher,
     start_date: entry.startDate,
+    genres: x ? [...x.genres] : [],
+    country_of_origin: x?.country || null,
+    title_key: titleKey(entry.title),
     last_synced_at: new Date().toISOString(),
   };
 }
@@ -196,6 +239,7 @@ async function fetchExistingMangaRows() {
     const { data, error } = await supabaseAdmin
       .from("catalog_manga")
       .select("id, mal_id")
+      .order("id") // tri unique, sinon la pagination renvoie des doublons
       .range(from, from + pageSize - 1);
     if (error) throw new Error(error.message);
     rows.push(...data);
@@ -208,11 +252,15 @@ async function main() {
   let rows;
   try {
     console.log("Requête SPARQL Wikidata (manga avec ID MAL et/ou AniList)...");
-    const bindings = await runQuery();
+    const bindings = await runQuery(QUERY_CORE, "noyau");
     console.log(`${bindings.length} lignes brutes reçues.`);
 
+    console.log("Requête SPARQL Wikidata (genres, pays d'origine, titre natif)...");
+    const extras = collectExtras(await runQuery(QUERY_EXTRA, "compléments"));
+    console.log(`${extras.size} items enrichis en genre/pays.`);
+
     const grouped = groupByItem(bindings);
-    const rawRows = grouped.map(toRow).filter(Boolean);
+    const rawRows = grouped.map((e) => toRow(e, extras)).filter(Boolean);
     // Deux items Wikidata distincts (ex: l'œuvre et la série) peuvent partager le
     // même ID AniList/MAL — Postgres refuse un ON CONFLICT en double dans le même
     // batch, donc on déduplique par id avant d'upserter (on garde la 1ère occurrence).

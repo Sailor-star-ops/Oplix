@@ -13,6 +13,14 @@ const relTypeLabel = t => ({
 
 const roleLabel = r => ({ MAIN: 'Principal', SUPPORTING: 'Secondaire', BACKGROUND: 'Figurant' }[r] || r)
 
+/* Langue de doublage (données Anime News Network). La VF passe en premier
+   dans le tri fait à l'import : c'est l'info que cherche un public français,
+   et aucun autre catalogue ne l'expose. */
+const voiceLangLabel = l => ({
+  FR: 'VF', JA: 'VO', EN: 'VA', ES: 'ES', DE: 'DE', IT: 'IT',
+  PT: 'PT', KO: 'KO', TL: 'TL', RU: 'RU',
+}[l] || l)
+
 /* Génère un fond très sombre teinté depuis n'importe quelle couleur hex.
    mix = 0..1 (proportion de la couleur, le reste est #080808)
    Résultat toujours sombre et cohérent, jamais criard. */
@@ -227,7 +235,8 @@ function Modal({ anime, onClose }) {
                 <div className="mi__stats-grid">
                   {[
                     { l: 'Score',      v: anime.averageScore  ? (anime.averageScore / 10).toFixed(1) + '/10' : null, icon: 'fa-star',            ic: '#fbbf24' },
-                    { l: 'Popularité', v: anime.popularity    ? '#' + anime.popularity.toLocaleString('fr-FR') : null, icon: 'fa-fire',          ic: '#f97316' },
+                    { l: 'Membres',    v: anime.popularity     ? anime.popularity.toLocaleString('fr-FR') : null,      icon: 'fa-users',          ic: '#f97316' },
+                    { l: 'Classement', v: anime.popularityRank ? '#' + anime.popularityRank.toLocaleString('fr-FR') : null, icon: 'fa-ranking-star', ic: '#fbbf24' },
                     { l: 'Favoris',    v: anime.favourites    ? anime.favourites.toLocaleString('fr-FR') : null,       icon: 'fa-heart',          ic: '#f43f5e' },
                     { l: 'Épisodes',   v: anime.episodes      || null,                                                  icon: 'fa-clapperboard',   ic: '#60a5fa' },
                     { l: 'Chapitres',  v: anime.chapters      || null,                                                  icon: 'fa-book-open',      ic: '#34d399' },
@@ -297,17 +306,33 @@ function Modal({ anime, onClose }) {
                 <div className="mi__chars-grid">
                   {anime.characters?.edges?.map((e, i) => (
                     <div className="mi__char-card" key={i}>
-                      <div className="mi__char-imgs">
-                        <img className="mi__char-img" src={e.node?.image?.large} alt={e.node?.name?.full} />
-                        {e.voiceActors?.[0] && (
-                          <img className="mi__va-img" src={e.voiceActors[0].image?.medium}
-                            alt={e.voiceActors[0].name?.full} title={e.voiceActors[0].name?.full} />
-                        )}
-                      </div>
+                      {/* Anime News Network fournit les noms sans portraits :
+                          on n'affiche le bloc image que s'il y a vraiment
+                          quelque chose à montrer, plutôt qu'une vignette cassée. */}
+                      {(e.node?.image?.large || e.voiceActors?.[0]?.image?.medium) && (
+                        <div className="mi__char-imgs">
+                          {e.node?.image?.large && (
+                            <img className="mi__char-img" src={e.node.image.large} alt={e.node?.name?.full}
+                              onError={ev => ev.target.style.display = 'none'} />
+                          )}
+                          {e.voiceActors?.[0]?.image?.medium && (
+                            <img className="mi__va-img" src={e.voiceActors[0].image.medium}
+                              alt={e.voiceActors[0].name?.full} title={e.voiceActors[0].name?.full}
+                              onError={ev => ev.target.style.display = 'none'} />
+                          )}
+                        </div>
+                      )}
                       <div>
                         <div className="mi__char-name">{e.node?.name?.full}</div>
                         <div className="mi__char-role" style={e.role === 'MAIN' ? { color: ac } : {}}>{roleLabel(e.role)}</div>
-                        {e.voiceActors?.[0] && <div className="mi__char-va">{e.voiceActors[0].name?.full}</div>}
+                        {e.voiceActors?.[0] && (
+                          <div className="mi__char-va">
+                            {e.voiceActors[0].name?.full}
+                            {e.voiceActors[0].language && (
+                              <em className="mi__char-lang">{voiceLangLabel(e.voiceActors[0].language)}</em>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -372,6 +397,27 @@ function Modal({ anime, onClose }) {
                 )}
               </div>
             )}
+
+            {/* Attribution des sources. Les conditions d'utilisation d'Anime
+                News Network imposent de les citer comme source ET de lier la
+                fiche d'origine sur toute page affichant leurs données — ce
+                bloc n'est donc pas décoratif, il est contractuel. */}
+            <div className="mi__sources">
+              {anime.copyrightNotice && (
+                <div className="mi__copyright">{anime.copyrightNotice}</div>
+              )}
+              <div className="mi__credit">
+                Données&nbsp;:
+                {anime.siteUrl ? (
+                  <a href={anime.siteUrl} target="_blank" rel="noopener noreferrer">
+                    Anime News Network
+                  </a>
+                ) : (
+                  <span>MyAnimeList</span>
+                )}
+                {anime.siteUrl && <span> · fiche complète sur ANN</span>}
+              </div>
+            </div>
           </div>
         </div>
       </div>

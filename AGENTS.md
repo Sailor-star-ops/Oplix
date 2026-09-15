@@ -6,7 +6,29 @@ Tracker anime/manga (à terme : le meilleur, cible = millions d'utilisateurs). I
 
 - **React 18 + Vite**, pas de TypeScript, pas de framework de routing (navigation par état `tab` dans [src/App.jsx](src/App.jsx), pas d'URLs de pages — sauf `?c=` et `?p=` pour les vues publiques partagées).
 - **Supabase** (`src/lib/supabase.js`) : auth, Postgres (table `profiles`, `watchlist`, `friendships`, `collections`/`collection_items`), Storage (bucket `avatars` pour tout ce qui est image uploadée — avatars, bannières).
-- **Catalogue interne** (`src/lib/catalog.js`, tables Supabase `catalog_anime`/`catalog_manga`) : source de métadonnées anime/manga possédée par Oplix, alimentée par `scripts/sync-anime.mjs` (anime-offline-database + API MAL v2) et `scripts/sync-manga-wikidata.mjs` (Wikidata), via GitHub Actions (`.github/workflows/sync-catalog.yml`). AniList a explicitement refusé son API à un tracker concurrent — voir JOURNAL.md pour le contexte. Le client lit directement Supabase (clé anon, lecture seule) ; seul le script d'import écrit, via la clé service role (jamais exposée au client). Champs sans source propre trouvée (personnages, staff détaillé, trailer, recommandations, liens externes) : absents, les composants (Modal.jsx) masquent ces sections si vides plutôt que de planter.
+- **Catalogue interne** (`src/lib/catalog.js`, tables Supabase `catalog_anime`/`catalog_manga`) : source de métadonnées anime/manga possédée par Oplix, alimentée par des scripts lancés via deux workflows GitHub Actions :
+  - **`sync-catalog.yml`** (hebdomadaire, lundi 4 h UTC, quelques minutes) — les sources :
+    - `scripts/sync-anime.mjs --skeleton` — anime-offline-database (ODbL)
+    - `scripts/sync-manga-wikidata.mjs` — Wikidata (CC0)
+    - `scripts/sync-ann.mjs` — Anime News Network : titres multilingues, équipe, **casting dont les voix françaises**, liens officiels, thèmes musicaux, et un catalogue manga qui triple de volume
+  - **`enrich-catalog.yml`** (quotidien, 2 h UTC) — ce qui est long ou cumulatif :
+    - `scripts/enrich-mal.mjs` — API MAL v2, **reprenable** (`mal_synced_at`), mieux classés d'abord, borné à 330 min par passage sous le plafond de 6 h
+    - `scripts/compute-trending.mjs` — score de tendance + relevé quotidien dans `catalog_trend_snapshot`
+
+  **Piège de popularité :** la colonne `popularity` est le *rang* MyAnimeList (1 = le plus populaire), pas un volume — elle se trie en **croissant**. Le volume est `members`. Trier `popularity` en décroissant affichait les fiches les plus obscures en page d'accueil.
+
+  Le client lit directement Supabase (clé anon, lecture seule) ; seuls les scripts écrivent, via la clé service role (jamais exposée au client).
+
+  **Contraintes de sources à respecter impérativement** (voir la mémoire `project-oplix-sources-catalogue`) :
+  - **AniList est interdit** — refus écrit opposé à Oplix en tant que tracker concurrent. Ni API, ni images. `scripts/purge-anilist-assets.mjs` a retiré les 732 hotlinks restants vers `s4.anilist.co` ; `cleanImageUrl()` dans `sync-anime.mjs` empêche leur retour. Ne jamais réintroduire de dépendance à AniList.
+  - **anime-offline-database est archivé depuis le 2026-07-04** : figé à 41 537 entrées, plus jamais mis à jour. La fraîcheur du catalogue repose désormais sur ANN.
+  - **L'attribution est contractuelle, pas décorative.** ANN impose d'être cité comme source ET qu'un lien vers sa fiche figure sur toute page affichant ses données (`.mi__sources` dans Modal.jsx) ; la licence ODbL impose la mention de la source sur l'œuvre produite (`.tb__sources` dans Topbar.jsx). Ne jamais retirer ces deux blocs.
+  - **Sources écartées, ne pas proposer** : AniDB (CC BY-NC-SA, scraping interdit), MangaDex (publicité interdite), TMDb (accord séparé pour le commercial), Jikan (c'est du MAL scrapé).
+  - **Le fair use n'est pas invocable** : doctrine de common law, inexistante en droit français (liste limitative de l'art. L122-5 CPI). Comme Oplix importe lui-même les images, il est *éditeur* et non hébergeur — pas de bouclier de l'art. 6 LCEN.
+
+  Champs restant sans source (calendrier épisode par épisode, vignettes d'épisodes, hashtag officiel) : absents, les composants masquent ces sections si vides plutôt que de planter.
+
+- **Les identifiants du catalogue ne doivent jamais changer.** `catalog_anime.id` / `catalog_manga.id` sont référencés par `watchlist`, `collection_items`, `activity_events`, `episode_logs` et `profiles.favorite_animes` : les rebaser orphelinerait toutes les listes des utilisateurs. Règle appliquée dans `scripts/lib/ids.mjs` : on garde l'ID AniList historique quand il existe, sinon on dérive un ID stable dans une plage réservée (`900000000+` pour MAL/Wikidata, `800000000+` pour ANN).
 - Une seule feuille de style globale : [src/App.css](src/App.css) (~3900 lignes). Pas de CSS modules, pas de Tailwind — classes BEM-ish (`.ph__banner`, `.pfav__cover`, etc.).
 
 ## Conventions observées
@@ -32,4 +54,7 @@ Règles à respecter pour tout nouveau CSS :
 
 - Mismatch classe JSX / classe CSS très fréquent (le composant a été réécrit plusieurs fois sans nettoyer le CSS mort, ou l'inverse) — si un style ne s'applique pas, vérifier d'abord que la classe existe réellement dans App.css avant de chercher ailleurs.
 - `z-index` négatif sur un enfant d'un conteneur `position:relative` **sans** `z-index` propre : le conteneur n'établit pas de contexte d'empilement, l'enfant s'échappe et peut se retrouver rendu derrière toute la page. Vu sur `.ph__banner`.
-- Pas de repo git initialisé sur ce projet — pas de garde-fou par commit, faire particulièrement attention avant toute suppression/écrasement de fichier.
+- **Dépôt git : `Sailor-star-ops/Oplix` (privé), branche `master`.** Il a été poussé via une URL contenant un jeton, pas via le remote nommé : `.git/refs/remotes/` n'existe donc pas localement et `master` ne suit aucun remote. **Ne pas en conclure que rien n'a été poussé** (erreur déjà commise une fois). L'état distant se vérifie sur github.com, pas depuis le clone.
+- **GitHub Actions exécute le code POUSSÉ, pas le code local.** Tant que les modifications locales ne sont pas poussées, les workflows programmés continuent de faire tourner l'ancienne version — c'est ainsi que, le lundi 2026-09-14, l'ancien `sync-anime.mjs` a réinjecté les 732 jaquettes hébergées par AniList qui venaient d'être purgées. Toute correction touchant un script lancé par un workflow doit être poussée avant le prochain cron.
+- **Toute requête Supabase paginée (`.range()`) doit trier sur une clé unique** (`.order("id")`, ou la clé composite d'une table sans id). Sans tri stable, Postgres renvoie des lignes en double d'une page à l'autre, et un upsert contenant deux fois le même id échoue en entier. `upsertInChunks` déduplique par sécurité, mais ce n'est qu'un filet.
+- Trois copies du dossier du projet existent à côté de celle-ci (`oplix`, `oplix - Copie`, `oplix - Copie - Copie - Copie`) ; seule `oplix - Copie - Copie` contient les scripts et le `.env`. C'est la bonne.

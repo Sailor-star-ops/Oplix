@@ -1,0 +1,75 @@
+name: Enrichissement MyAnimeList + tendance
+
+# Fichier séparé de sync-catalog.yml parce que la cadence n'a rien à voir :
+# la synchronisation des sources est hebdomadaire, l'enrichissement doit
+# tourner tous les jours tant que le rattrapage n'est pas fini.
+on:
+  schedule:
+    # Chaque nuit à 2h UTC. Tant qu'il reste des fiches à enrichir, le job
+    # avance de ~5h30 ; une fois le rattrapage terminé, il ne trouve plus rien
+    # à faire et se termine en quelques secondes — il ne consomme donc plus
+    # de minutes pour rien.
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Durée max de l'enrichissement MyAnimeList (minutes)"
+        default: "330"
+      target:
+        description: "Quoi enrichir"
+        type: choice
+        default: both
+        options: [both, anime, manga]
+
+jobs:
+  enrich-mal:
+    runs-on: ubuntu-latest
+    # Les runners hébergés sont coupés à 6 heures. On s'arrête volontairement
+    # avant (330 min de travail, 350 de plafond) pour que le job se termine
+    # proprement et écrive ses dernières lignes au lieu d'être tué.
+    # Le script est reprenable : chaque exécution repart d'où la précédente
+    # s'est arrêtée, donc découper en tranches ne perd rien.
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Enrichir depuis MyAnimeList
+        run: |
+          node scripts/enrich-mal.mjs \
+            --minutes "${{ github.event.inputs.minutes || '330' }}" \
+            ${{ github.event.inputs.target == 'anime' && '--anime' || '' }} \
+            ${{ github.event.inputs.target == 'manga' && '--manga' || '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
+
+  trending:
+    needs: [enrich-mal]
+    # `always()` : la tendance se recalcule même si l'enrichissement a été
+    # interrompu, puisqu'elle exploite ce qui est déjà en base. Et surtout,
+    # chaque exécution dépose un relevé quotidien — c'est l'accumulation de
+    # ces relevés qui transforme un classement figé en vraie tendance.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Recalculer la tendance
+        run: node scripts/compute-trending.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

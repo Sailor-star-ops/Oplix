@@ -60,6 +60,41 @@ function splitDate(dateStr) {
   return { year: y || null, month: m || null, day: d || null };
 }
 
+/* Les conditions d'utilisation d'Anime News Network demandent un lien vers la
+   fiche d'origine sur toute page affichant leurs données — ce lien est donc
+   produit systématiquement dès qu'on a un ann_id, et affiché par Modal.jsx. */
+export function annUrl(row) {
+  if (!row?.ann_id) return null;
+  const kind = row._kind === "MANGA" ? "manga" : "anime";
+  return `https://www.animenewsnetwork.com/encyclopedia/${kind}.php?id=${row.ann_id}`;
+}
+
+/* ANN fournit des noms, pas des portraits : les composants doivent afficher
+   la fiche sans image plutôt que de laisser une vignette cassée. */
+function toStaffEdges(staff = []) {
+  return staff.map((s, i) => ({
+    id: `${s.name}-${i}`,
+    role: s.task,
+    node: { id: s.name, name: { full: s.name }, image: { medium: null, large: null } },
+  }));
+}
+
+function toCharacterEdges(characters = []) {
+  return characters.map((c, i) => ({
+    id: `${c.name}-${i}`,
+    // ANN ne distingue pas rôle principal et secondaire : on n'invente pas.
+    role: null,
+    node: { id: c.name, name: { full: c.name }, image: { large: null, medium: null } },
+    voiceActors: (c.actors || []).map((a) => ({
+      id: a.name,
+      name: { full: a.name },
+      language: a.lang,
+      languageV2: a.lang,
+      image: { medium: null, large: null },
+    })),
+  }));
+}
+
 function toMediaShape(row, mediaType) {
   const isAnime = mediaType === "ANIME";
   return {
@@ -97,9 +132,13 @@ function toMediaShape(row, mediaType) {
     tags: (row.tags || []).map((name) => ({ name, rank: null, category: null, isMediaSpoiler: false })),
     averageScore: row.score ? Math.round(row.score * 10) : null,
     meanScore: row.score ? Math.round(row.score * 10) : null,
-    popularity: row.popularity || 0,
+    // Sémantique AniList : `popularity` = nombre d'utilisateurs suivant l'œuvre.
+    // Le rang MyAnimeList est exposé à part, car c'est une autre grandeur —
+    // les confondre inversait tous les classements de l'app.
+    popularity: row.members ?? null,
+    popularityRank: row.popularity ?? null,
     favourites: 0,
-    trending: 0,
+    trending: row.trending_score ?? 0,
     isAdult: row.nsfw_level === "black",
     nextAiringEpisode: isAnime ? computeNextAiring(row) : null,
     trailer: null,
@@ -112,13 +151,25 @@ function toMediaShape(row, mediaType) {
         isAnimationStudio: isAnime,
       })),
     },
-    externalLinks: [],
+    externalLinks: (row.external_links || []).map((l, i) => ({
+      id: i,
+      site: l.label || l.url,
+      url: l.url,
+      language: l.lang || null,
+    })),
     streamingEpisodes: [],
     recommendations: { nodes: [] },
     relations: { edges: [] }, // rempli juste après par attachRawRelationIds/hydrateRelations
-    characters: { edges: [] },
-    staff: { edges: [] },
-    siteUrl: null,
+    characters: { edges: toCharacterEdges(row.characters) },
+    staff: { edges: toStaffEdges(row.staff) },
+    rankings: row.rank_overall ? [{ rank: row.rank_overall, type: "RATED", allTime: true, context: "toutes périodes" }] : [],
+    siteUrl: annUrl({ ...row, _kind: mediaType }),
+    // Titres alternatifs par langue (ANN) — { EN: [...], FR: [...], JA: [...] }
+    titlesByLang: row.titles || {},
+    openingThemes: row.opening_themes || [],
+    endingThemes: row.ending_themes || [],
+    copyrightNotice: row.copyright_notice || null,
+    isLicensed: row.is_licensed ?? null,
     _mediaType: mediaType,
     // Champs internes (pas dans le schéma AniList d'origine) exposés pour
     // Calendar.jsx, qui a besoin de recalculer une occurrence de diffusion
@@ -224,43 +275,58 @@ export async function fetchAllByIds(ids) {
   return [...animeMedia, ...mangaMedia];
 }
 
+/* ─── Ordre de popularité ────────────────────────────────────────────
+   ATTENTION au piège : `popularity` est le RANG MyAnimeList (1 = le plus
+   populaire), pas un nombre d'utilisateurs. Le trier en décroissant
+   remontait donc les fiches les plus obscures du catalogue — c'était la
+   cause du classement absurde en page d'accueil.
+
+   Ordre correct, en cascade :
+     1. `members` décroissant — le vrai volume d'utilisateurs (rempli par
+        l'enrichissement MyAnimeList) ;
+     2. à défaut, `popularity` CROISSANT — le rang, meilleur en premier.
+   Les fiches sans aucune des deux finissent naturellement en fin de liste. */
+function orderByPopularity(q) {
+  return q
+    .order("members", { ascending: false, nullsFirst: false })
+    .order("popularity", { ascending: true, nullsFirst: false });
+}
+
 export async function fetchTrending({ page = 1, perPage = 50 } = {}) {
-  const { data, error } = await supabase
-    .from("catalog_anime")
-    .select("*")
-    .order("popularity", { ascending: false, nullsFirst: false })
-    .range((page - 1) * perPage, page * perPage - 1);
+  const { data, error } = await orderByPopularity(
+    supabase
+      .from("catalog_anime")
+      .select("*")
+      // trending_score traduit une VARIATION de popularité entre deux
+      // synchronisations (voir scripts/compute-trending.mjs) : c'est ce qui
+      // fait qu'une tendance bouge au lieu d'être un palmarès figé.
+      .order("trending_score", { ascending: false, nullsFirst: false }),
+  ).range((page - 1) * perPage, page * perPage - 1);
   if (error) throw error;
   return mapRows(data || [], "ANIME");
 }
 
 export async function fetchSeasonal({ season, year, page = 1, perPage = 50 } = {}) {
-  const { data, error } = await supabase
-    .from("catalog_anime")
-    .select("*")
-    .eq("season", season)
-    .eq("season_year", year)
-    .order("popularity", { ascending: false, nullsFirst: false })
-    .range((page - 1) * perPage, page * perPage - 1);
+  const { data, error } = await orderByPopularity(
+    supabase.from("catalog_anime").select("*").eq("season", season).eq("season_year", year),
+  ).range((page - 1) * perPage, page * perPage - 1);
   if (error) throw error;
   return mapRows(data || [], "ANIME");
 }
 
+/* Chaque tri est une CASCADE de colonnes, appliquées dans l'ordre. Voir
+   orderByPopularity ci-dessus pour le piège du rang : `popularity` se trie en
+   croissant, jamais en décroissant. */
 const SORT_MAP = {
-  POPULARITY_DESC: ["popularity", false],
-  TRENDING_DESC: ["popularity", false],
-  SCORE_DESC: ["score", false],
-  FAVOURITES_DESC: ["popularity", false],
-  START_DATE_DESC: ["start_date", false],
-  START_DATE: ["start_date", true],
-  TITLE_ROMAJI: ["title_romaji", true],
-  SEARCH_MATCH: ["popularity", false],
+  POPULARITY_DESC: [["members", false], ["popularity", true]],
+  TRENDING_DESC: [["trending_score", false], ["members", false], ["popularity", true]],
+  SCORE_DESC: [["score", false], ["members", false]],
+  FAVOURITES_DESC: [["members", false], ["popularity", true]],
+  START_DATE_DESC: [["start_date", false]],
+  START_DATE: [["start_date", true]],
+  TITLE_ROMAJI: [["title_romaji", true]],
+  SEARCH_MATCH: [["members", false], ["popularity", true]],
 };
-
-// catalog_manga n'a ni `popularity` ni `score` (Wikidata ne fournit aucune
-// des deux) — trier dessus fait planter la requête Postgres (colonne
-// inexistante). Seuls start_date/title_romaji existent des deux côtés.
-const MANGA_SORTABLE_COLUMNS = new Set(["start_date", "title_romaji"]);
 
 /* Remplace Q_SEARCH — recherche multi-critères utilisée par Explorer
    (filtres complets), Home (genre dominant), Collection et Calendar
@@ -295,12 +361,11 @@ export async function searchMedia({
   if (year) q = q.gte("start_date", `${year}-01-01`).lte("start_date", `${year}-12-31`);
   if (type === "ANIME" && isAdult === false) q = q.or("nsfw_level.is.null,nsfw_level.neq.black");
 
-  let [col, asc] = SORT_MAP[sort?.[0]] || ["popularity", false];
-  if (type === "MANGA" && !MANGA_SORTABLE_COLUMNS.has(col)) {
-    col = "title_romaji";
-    asc = true;
-  }
-  q = q.order(col, { ascending: asc, nullsFirst: false }).range((page - 1) * perPage, page * perPage - 1);
+  // Depuis la migration v3, catalog_manga porte les mêmes colonnes de
+  // statistiques que catalog_anime : plus besoin de restreindre le tri par type.
+  const orders = SORT_MAP[sort?.[0]] || SORT_MAP.POPULARITY_DESC;
+  for (const [col, asc] of orders) q = q.order(col, { ascending: asc, nullsFirst: false });
+  q = q.range((page - 1) * perPage, page * perPage - 1);
 
   const { data, error, count } = await q;
   if (error) throw error;

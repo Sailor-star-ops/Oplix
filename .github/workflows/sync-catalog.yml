@@ -12,17 +12,20 @@ on:
         description: "Quoi synchroniser"
         type: choice
         default: both
-        options: [both, anime, manga]
+        options: [both, anime, manga, ann]
 
 jobs:
-  # Deux jobs indépendants (pas un seul avec deux steps séquentiels) : les deux
-  # scripts ont maintenant chacun leur propre phase d'enrichissement MAL
-  # (~1 req/s, plusieurs heures) — les lancer en parallèle sur deux runners,
-  # avec un input pour cibler un seul des deux sans rejouer l'autre inutilement
-  # (le cron hebdo, lui, n'a pas d'input donc `target` est vide -> les deux tournent).
+  # Ce workflow ne fait que les SOURCES (squelette dataset, Wikidata, ANN) :
+  # quelques minutes au total. L'enrichissement MyAnimeList, lui, vit dans
+  # enrich-catalog.yml — reprenable, quotidien, borné sous le plafond de 6 h.
+  #
+  # Ne JAMAIS remettre l'enrichissement MAL ici : non reprenable dans ces
+  # scripts, il dépassait les 6 h, se faisait tuer chaque lundi sans rien
+  # finir, et consommait ~360 minutes de quota GitHub Actions pour rien.
   sync-anime:
     if: github.event.inputs.target == '' || github.event.inputs.target == 'both' || github.event.inputs.target == 'anime'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -32,16 +35,16 @@ jobs:
 
       - run: npm ci
 
-      - name: Sync anime (dataset + MAL)
-        run: node scripts/sync-anime.mjs
+      - name: Sync anime (squelette dataset)
+        run: node scripts/sync-anime.mjs --skeleton
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
 
   sync-manga:
     if: github.event.inputs.target == '' || github.event.inputs.target == 'both' || github.event.inputs.target == 'manga'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -51,9 +54,40 @@ jobs:
 
       - run: npm ci
 
-      - name: Sync manga (Wikidata + MAL)
+      # Pas de MAL_CLIENT_ID transmis : c'est ce qui fait sauter la phase
+      # d'enrichissement MyAnimeList du script, reprise par enrich-catalog.yml.
+      - name: Sync manga (Wikidata)
         run: node scripts/sync-manga-wikidata.mjs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
+
+  # Enrichissement Anime News Network : titres multilingues, équipe, casting
+  # (dont les voix françaises), liens officiels, thèmes musicaux.
+  # Passe APRÈS les deux autres : côté anime il lui faut les `ann_id` posés par
+  # sync-anime, côté manga il déduplique contre les titres venus de Wikidata.
+  # Rapide (~50 titres par requête, 1 req/s) : une quinzaine de minutes au total,
+  # sans commune mesure avec les heures que prend l'enrichissement MyAnimeList.
+  sync-ann:
+    needs: [sync-anime, sync-manga]
+    # `always()` : ANN reste utile même si l'un des deux jobs amont a échoué,
+    # tant que la base contient déjà des lignes à enrichir.
+    if: |
+      always() &&
+      (github.event.inputs.target == '' || github.event.inputs.target == 'both' || github.event.inputs.target == 'ann')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Sync Anime News Network
+        run: node scripts/sync-ann.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -1836,6 +1836,26 @@
 
 /* Bloc générique pour espacer les sections */
 .mi__block { display: flex; flex-direction: column; }
+
+/* Langue de doublage accolée au nom du comédien (VF / VO / VA…) */
+.mi__char-lang {
+  font-style: normal; font-weight: 700; font-size: .55rem;
+  letter-spacing: .04em; margin-left: 5px;
+  padding: 1px 4px; border-radius: 3px;
+  background: rgba(var(--overlay-rgb),.07); color: var(--text-5);
+}
+
+/* Attribution des sources — exigée par les conditions d'Anime News Network,
+   qui imposent de les citer et de lier la fiche d'origine. Ne pas retirer. */
+.mi__sources {
+  display: flex; flex-direction: column; gap: 4px;
+  margin-top: 18px; padding-top: 12px;
+  border-top: 1px solid rgba(var(--overlay-rgb),.07);
+}
+.mi__copyright { font-size: .62rem; color: var(--text-6); }
+.mi__credit    { font-size: .65rem; color: var(--text-5); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.mi__credit a  { color: var(--accent); text-decoration: none; font-weight: 600; }
+.mi__credit a:hover { text-decoration: underline; }
 /* ═══════════════════════════════════════════════════════════
    PROFILE
 ═══════════════════════════════════════════════════════════ */
@@ -3412,6 +3432,22 @@ button.tb__pill:hover { border-color: rgba(34,211,238,.4); background: rgba(34,2
 .tb__dropdown-empty i { font-size: 1.4rem; color: var(--text-6); margin-bottom: 4px; }
 .tb__dropdown-empty p { color: var(--text-3); font-size: .85rem; font-weight: 600; margin: 0; }
 .tb__dropdown-empty span { font-size: .74rem; color: var(--text-5); }
+
+/* Attribution des sources du catalogue — exigée par les conditions d'Anime
+   News Network et par la licence ODbL d'anime-offline-database. Ne pas retirer. */
+.tb__sources {
+  display: flex; flex-direction: column; gap: 3px;
+  margin-top: 6px; padding: 10px 12px 4px;
+  border-top: 1px solid rgba(var(--overlay-rgb),.07);
+}
+.tb__sources-head {
+  font-size: .62rem; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-6); margin-bottom: 2px;
+}
+.tb__sources a {
+  font-size: .72rem; color: var(--text-4); text-decoration: none;
+}
+.tb__sources a:hover { color: var(--accent); }
 
 .tb__dropdown-item {
   display: flex; align-items: center; gap: 10px; width: 100%;

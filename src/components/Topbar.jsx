@@ -231,6 +231,22 @@ function Topbar({ user, stats, watchlist, onOpenModal, theme, onToggleTheme }) {
                   Connecte-toi pour accéder aux autres paramètres.
                 </p>
               )}
+
+              {/* Attribution des sources du catalogue. Obligatoire, pas
+                  cosmétique : Anime News Network impose d'être cité, et la
+                  licence ODbL d'anime-offline-database impose la mention de
+                  la source sur toute œuvre produite à partir des données. */}
+              <div className="tb__sources">
+                <span className="tb__sources-head">Sources du catalogue</span>
+                <a href="https://www.animenewsnetwork.com/encyclopedia/"
+                   target="_blank" rel="noopener noreferrer">Anime News Network</a>
+                <a href="https://github.com/manami-project/anime-offline-database"
+                   target="_blank" rel="noopener noreferrer">anime-offline-database (ODbL)</a>
+                <a href="https://www.wikidata.org" target="_blank" rel="noopener noreferrer">
+                  Wikidata (CC0)</a>
+                <a href="https://myanimelist.net" target="_blank" rel="noopener noreferrer">
+                  MyAnimeList</a>
+              </div>
             </div>
           )}
         </div>

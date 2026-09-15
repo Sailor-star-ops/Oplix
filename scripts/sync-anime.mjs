@@ -9,6 +9,7 @@
 // est sautée et seul le squelette (phase 1) est importé.
 
 import { supabaseAdmin, sleep, upsertInChunks } from "./lib/supabaseAdmin.mjs";
+import { fromMalId, fromAnnId } from "./lib/ids.mjs";
 
 // URL stable : redirige toujours vers l'asset de la dernière release
 // (le tag de version change à chaque publication, ex. "2026-27").
@@ -21,6 +22,12 @@ const MAL_RATE_LIMIT_MS = 1100; // ~1 req/s, convention communautaire non-offici
 // avant de lancer l'import complet (qui prend plusieurs heures à ~1 req/s vers MAL).
 const SYNC_LIMIT = process.env.SYNC_LIMIT ? parseInt(process.env.SYNC_LIMIT, 10) : null;
 
+// --skeleton : phase 1 seulement (dataset -> Supabase), quelques minutes.
+// La phase 2 interroge MyAnimeList à ~1 req/s pour ~30 500 entrées, soit près
+// de 9 heures — impossible à tenir dans une session locale, et inutile pour
+// démarrer : le squelette suffit à poser les ann_id dont sync-ann.mjs a besoin.
+const SKELETON_ONLY = process.argv.includes("--skeleton");
+
 // anime-offline-database utilise un statut différent de l'enum AniList
 // (à vérifier/ajuster si le premier run signale des valeurs inconnues).
 const STATUS_MAP = {
@@ -31,15 +38,30 @@ const STATUS_MAP = {
 };
 
 function extractSourceIds(sources = []) {
-  const ids = { anilist_id: null, mal_id: null, anidb_id: null, kitsu_id: null };
+  const ids = { anilist_id: null, mal_id: null, anidb_id: null, kitsu_id: null, ann_id: null };
   for (const url of sources) {
     let m;
     if ((m = url.match(/anilist\.co\/anime\/(\d+)/))) ids.anilist_id = parseInt(m[1], 10);
     else if ((m = url.match(/myanimelist\.net\/anime\/(\d+)/))) ids.mal_id = parseInt(m[1], 10);
     else if ((m = url.match(/anidb\.net\/anime\/(\d+)/))) ids.anidb_id = parseInt(m[1], 10);
     else if ((m = url.match(/kitsu\.(?:io|app)\/anime\/(\d+)/))) ids.kitsu_id = parseInt(m[1], 10);
+    else if ((m = url.match(/animenewsnetwork\.com\/encyclopedia\/anime\.php\?id=(\d+)/)))
+      ids.ann_id = parseInt(m[1], 10);
   }
   return ids;
+}
+
+// AniList a refusé l'accès à ses données pour un tracker concurrent : on ne
+// hotlinke pas ses images non plus. Les entrées concernées repartent sans
+// visuel, et sync-ann.mjs les repeuple depuis le CDN d'Anime News Network.
+function cleanImageUrl(url) {
+  if (!url) return null;
+  try {
+    if (new URL(url).hostname.endsWith("anilist.co")) return null;
+  } catch {
+    return null;
+  }
+  return url;
 }
 
 function extractRelatedAnilistIds(relatedAnime = []) {
@@ -52,8 +74,15 @@ function extractRelatedAnilistIds(relatedAnime = []) {
 }
 
 function toRow(entry) {
-  const { anilist_id, mal_id, anidb_id, kitsu_id } = extractSourceIds(entry.sources);
-  if (!anilist_id) return null; // pas d'ID AniList = pas de clé primaire réutilisable, on saute
+  const { anilist_id, mal_id, anidb_id, kitsu_id, ann_id } = extractSourceIds(entry.sources);
+
+  // L'ID AniList reste la clé quand il existe : c'est celui que référencent
+  // déjà watchlist, collection_items, episode_logs et favorite_animes, et le
+  // changer orphelinerait les listes des utilisateurs. Pour la moitié du
+  // dataset qui n'en a pas, on dérive une clé stable dans une plage réservée
+  // — ces entrées étaient purement et simplement jetées jusqu'ici.
+  const id = anilist_id || fromMalId(mal_id) || fromAnnId(ann_id);
+  if (!id) return null; // aucun identifiant exploitable, cas résiduel
 
   const durationSec = entry.duration?.unit === "SECONDS" ? entry.duration.value : null;
   const status = STATUS_MAP[entry.status] ?? entry.status ?? null;
@@ -62,10 +91,11 @@ function toRow(entry) {
   }
 
   return {
-    id: anilist_id,
+    id,
     mal_id,
     anidb_id,
     kitsu_id,
+    ann_id,
     title_romaji: entry.title || null,
     title_english: null, // le dataset n'a qu'un seul titre + synonymes non structurés par langue
     title_native: null,
@@ -79,8 +109,8 @@ function toRow(entry) {
     studios: entry.studios || [],
     producers: entry.producers || [],
     tags: entry.tags || [],
-    cover_url: entry.picture || null,
-    thumbnail_url: entry.thumbnail || null,
+    cover_url: cleanImageUrl(entry.picture),
+    thumbnail_url: cleanImageUrl(entry.thumbnail),
     score: entry.score?.arithmeticMean ?? null,
     relations: extractRelatedAnilistIds(entry.relatedAnime),
     last_synced_at: new Date().toISOString(),
@@ -96,7 +126,11 @@ async function importDataset() {
   console.log(`${entries.length} entrées dans le dataset.`);
 
   let rows = entries.map(toRow).filter(Boolean);
-  console.log(`${rows.length} entrées avec un ID AniList exploitable (${entries.length - rows.length} sautées).`);
+  const parAniList = rows.filter((r) => r.id < 800_000_000).length;
+  console.log(
+    `${rows.length} entrées exploitables (${entries.length - rows.length} sans aucun identifiant, sautées).\n` +
+      `  dont ${parAniList} sur ID AniList historique et ${rows.length - parAniList} sur ID interne Oplix.`,
+  );
   if (SYNC_LIMIT) {
     rows = rows.slice(0, SYNC_LIMIT);
     console.log(`SYNC_LIMIT actif : réduit à ${rows.length} entrées pour ce run de test.`);
@@ -119,7 +153,7 @@ function normalizeDate(d) {
 
 async function fetchMalFields(malId, attempt = 1) {
   const fields =
-    "synopsis,genres,rating,source,broadcast,start_date,end_date,related_anime,nsfw,mean,popularity,rank,num_list_users";
+    "synopsis,genres,rating,source,broadcast,start_date,end_date,related_anime,nsfw,mean,popularity,rank,num_list_users,alternative_titles";
   let res;
   try {
     res = await fetch(`https://api.myanimelist.net/v2/anime/${malId}?fields=${fields}`, {
@@ -148,6 +182,14 @@ async function fetchMalFields(malId, attempt = 1) {
 }
 
 async function enrichFromMal(rows) {
+  if (SKELETON_ONLY) {
+    console.log(
+      "\n--skeleton : phase 2 (enrichissement MyAnimeList) sautée.\n" +
+        "Les ann_id sont posés — tu peux enchaîner sur scripts/sync-ann.mjs.\n" +
+        "Relance sans --skeleton (ou via GitHub Actions) pour synopsis, genres et dates MAL.",
+    );
+    return;
+  }
   if (!MAL_CLIENT_ID) {
     console.warn("MAL_CLIENT_ID absent de .env — phase 2 (enrichissement MAL) sautée.");
     return;
@@ -155,11 +197,18 @@ async function enrichFromMal(rows) {
   const withMal = rows.filter((r) => r.mal_id);
   console.log(`Phase 2 (enrichissement MAL) : ${withMal.length} entrées à enrichir, ~1 req/s...`);
 
+  // MAL renvoie les œuvres liées avec des ID MyAnimeList, alors que la colonne
+  // `relations` est relue côté client contre catalog_anime.id (ID AniList ou
+  // plage interne). Sans cette table de correspondance, aucune œuvre liée ne
+  // remontait jamais dans le Modal.
+  const malToCatalogId = new Map(rows.filter((r) => r.mal_id).map((r) => [r.mal_id, r.id]));
+
   let ok = 0;
   let failed = 0;
   for (const row of withMal) {
     try {
       const data = await fetchMalFields(row.mal_id);
+      const alt = data.alternative_titles || {};
       const update = {
         id: row.id,
         synopsis: data.synopsis || null,
@@ -173,8 +222,15 @@ async function enrichFromMal(rows) {
         broadcast_time: data.broadcast?.start_time || null,
         score: data.mean ?? row.score ?? null,
         popularity: data.popularity ?? data.num_list_users ?? null,
+        rank_overall: data.rank ?? null,
+        title_english: alt.en || null,
+        title_native: alt.ja || null,
+        synonyms: [...new Set([...(row.synonyms || []), ...(alt.synonyms || [])])],
         relations: (data.related_anime || [])
-          .map((r) => ({ id: r.node?.id, relation_type: r.relation_type }))
+          .map((r) => ({
+            id: malToCatalogId.get(r.node?.id) ?? null,
+            relation_type: r.relation_type,
+          }))
           .filter((r) => r.id),
       };
       const { error } = await supabaseAdmin.from("catalog_anime").update(update).eq("id", row.id);

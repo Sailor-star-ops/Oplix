@@ -8,7 +8,15 @@
     "build": "vite build",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "sync-catalog": "node scripts/sync-anime.mjs && node scripts/sync-manga-wikidata.mjs"
+    "sync-catalog": "node scripts/sync-anime.mjs && node scripts/sync-manga-wikidata.mjs && node scripts/sync-ann.mjs",
+    "sync-anime": "node scripts/sync-anime.mjs",
+    "sync-anime-fast": "node scripts/sync-anime.mjs --skeleton",
+    "sync-manga": "node scripts/sync-manga-wikidata.mjs",
+    "sync-ann": "node scripts/sync-ann.mjs",
+    "enrich-mal": "node scripts/enrich-mal.mjs",
+    "trending": "node scripts/compute-trending.mjs",
+    "import-covers": "node scripts/import-covers.mjs",
+    "purge-anilist": "node scripts/purge-anilist-assets.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.100.1",
