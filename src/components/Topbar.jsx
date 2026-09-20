@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../lib/supabase";
+import { TIERS, getTier } from "../lib/tiers";
 
 const SOON_WINDOW = 7 * 24 * 3600; // au-delà d'une semaine, un compte à rebours n'est plus vraiment actionnable
 
@@ -54,21 +55,6 @@ function useNextUp(watchlist) {
   }, [watchlist]);
 }
 
-const TIERS = [
-  { min: 0, label: "Nouveau Watcher", color: "#71717a" },
-  { min: 10, label: "Initié Otaku", color: "#60a5fa" },
-  { min: 30, label: "Watcher Confirmé", color: "#34d399" },
-  { min: 60, label: "Watcher Légendaire", color: "#ff5500" },
-  { min: 100, label: "Maître des Animés", color: "#fbbf24" },
-  { min: 200, label: "Otaku Transcendant", color: "#c084fc" },
-];
-const getTier = (n) => {
-  let t = TIERS[0];
-  for (const x of TIERS) {
-    if (n >= x.min) t = x;
-  }
-  return t;
-};
 
 function useClickOutside(onOutside) {
   const ref = useRef(null);

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchAllByIds } from '../lib/catalog'
-import { MemberCard, TIERS, getTier } from './Profile'
+import { MemberCard } from './Profile'
+import { TIERS, getTier } from '../lib/tiers'
 
 const pad6 = n => String(n || 0).padStart(6, '0')
 

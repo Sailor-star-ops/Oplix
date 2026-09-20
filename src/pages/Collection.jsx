@@ -52,7 +52,7 @@ function CollectionCover({ items, icon, color }) {
   )
 }
 
-function Collection({ watchlist, onOpenModal, onSetProgress, statusFilter, user, onAuthOpen }) {
+function Collection({ watchlist, onOpenModal, user, onAuthOpen }) {
   const [view, setView] = useState('suivi') // suivi | collections
   const [activeTab, setActiveTab] = useState('all')
 
@@ -390,7 +390,6 @@ function CollectionDetail({ collection, onBack, onOpenModal, onDelete, onToggleP
   useEffect(() => {
     const t = setTimeout(() => runSearch(search), 350)
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search])
 
   const shareUrl = collection.share_code ? `${window.location.origin}${window.location.pathname}?c=${collection.share_code}` : null

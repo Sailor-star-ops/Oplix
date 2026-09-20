@@ -10,7 +10,6 @@ import ScrollToTop from '../components/ScrollToTop'
 
 const PER_PAGE = 24
 const CURRENT_YEAR = currentAnilistYear()
-const YEARS = Array.from({ length: CURRENT_YEAR - 1959 }, (_, i) => CURRENT_YEAR - i)
 
 const DEFAULT_FILTERS = {
   type: 'ANIME',

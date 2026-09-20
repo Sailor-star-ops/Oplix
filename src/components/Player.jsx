@@ -52,7 +52,9 @@ function Player({ anime, onClose }) {
     return () => {
       cancelled = true
       if (ytPlayerRef.current) {
-        try { ytPlayerRef.current.stopVideo(); ytPlayerRef.current.destroy() } catch (e) {}
+        try { ytPlayerRef.current.stopVideo(); ytPlayerRef.current.destroy() } catch {
+          // Le lecteur YouTube est deja detruit : rien a faire.
+        }
         ytPlayerRef.current = null
       }
     }

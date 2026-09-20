@@ -62,7 +62,6 @@ function Modal({ anime, onClose }) {
 
   if (!anime) return null
 
-  const totalEps = anime.episodes || anime.chapters || 0
   const ac       = anime.coverImage?.color || '#ff5500'
 
   const tabs = [

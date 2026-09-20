@@ -100,7 +100,6 @@ function Sidebar({
   user,
   profile, // <-- Ajout de la prop profile
   setProfile,
-  stats,
   watchlistCount,
   onAuthOpen,
   onLogout,

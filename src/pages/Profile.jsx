@@ -1,28 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import ScrollToTop from "../components/ScrollToTop";
+import { TIERS, getTier } from "../lib/tiers";
 
-/* ─── Tiers ──────────────────────────────────────────────────────── */
-export const TIERS = [
-  { min: 0, label: "Nouveau Watcher", color: "#71717a", rgb: "113,113,122" },
-  { min: 10, label: "Initié Otaku", color: "#60a5fa", rgb: "96,165,250" },
-  { min: 30, label: "Watcher Confirmé", color: "#34d399", rgb: "52,211,153" },
-  { min: 60, label: "Watcher Légendaire", color: "#ff5500", rgb: "255,85,0" },
-  { min: 100, label: "Maître des Animés", color: "#fbbf24", rgb: "251,191,36" },
-  {
-    min: 200,
-    label: "Otaku Transcendant",
-    color: "#c084fc",
-    rgb: "192,132,252",
-  },
-];
-export const getTier = (n) => {
-  let t = TIERS[0];
-  for (const x of TIERS) {
-    if (n >= x.min) t = x;
-  }
-  return t;
-};
 const pad6 = (n) => String(n || 0).padStart(6, "0");
 const fmtMonth = () =>
   new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
@@ -210,6 +190,9 @@ function FavoritesBlock({ watchlist, favorites, onToggleFav }) {
 }
 
 /* ─── Streak ─────────────────────────────────────────────────────── */
+// Pas encore branche : la forme finale du streak hebdomadaire n'est pas
+// tranchee (voir ROADMAP, brainstorm Social). Conserve volontairement.
+// eslint-disable-next-line no-unused-vars
 function StreakBlock({ streak }) {
   const flames = Math.min(streak, 7);
   return (
@@ -656,7 +639,6 @@ export default function Profile({
   const [favorites, setFavorites] = useState([]);
   const [nowWatchingId, setNowWatchingId] = useState(null);
   const streak = profile?.weekly_streak_count || 0;
-  const [copied, setCopied] = useState(false);
   const [previewTierIdx, setPreviewTierIdx] = useState(null);
 
   useEffect(() => {

@@ -20,6 +20,13 @@ module.exports = {
     },
   ],
   rules: {
+    // 650 des 697 erreurs de lint venaient de cette seule regle, sur un projet
+    // qui n'utilise nulle part les PropTypes (pas de TypeScript non plus) :
+    // elle noyait les vraies erreurs au lieu de les signaler.
+    'react/prop-types': 'off',
+    // Interface entierement en francais : cette regle signale chaque
+    // apostrophe d'un texte JSX, ce qui est parfaitement valide en React.
+    'react/no-unescaped-entities': 'off',
     'react-refresh/only-export-components': [
       'warn',
       { allowConstantExport: true },
