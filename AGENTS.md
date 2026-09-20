@@ -10,9 +10,10 @@ Tracker anime/manga (à terme : le meilleur, cible = millions d'utilisateurs). I
   - **`sync-catalog.yml`** (hebdomadaire, lundi 4 h UTC, quelques minutes) — les sources :
     - `scripts/sync-anime.mjs --skeleton` — anime-offline-database (ODbL)
     - `scripts/sync-manga-wikidata.mjs` — Wikidata (CC0)
-    - `scripts/sync-ann.mjs` — Anime News Network : titres multilingues, équipe, **casting dont les voix françaises**, liens officiels, thèmes musicaux, et un catalogue manga qui triple de volume
+    - `scripts/sync-ann.mjs` — Anime News Network : titres multilingues, équipe, **casting dont les voix françaises**, liens officiels, thèmes musicaux, et un catalogue manga qui triple de volume. **Crée aussi les fiches anime absentes** depuis que le dataset amont est archivé — le rapprochement compare tous les titres principaux des deux côtés et exige une année compatible, sinon il ne crée rien (un doublon ne peut plus jamais être défait, voir `scripts/fusion-doublons-manga.mjs`)
   - **`enrich-catalog.yml`** (quotidien, 2 h UTC) — ce qui est long ou cumulatif :
-    - `scripts/enrich-mal.mjs` — API MAL v2, **reprenable** (`mal_synced_at`), mieux classés d'abord, borné à 330 min par passage sous le plafond de 6 h
+    - `scripts/sync-mal-season.mjs` — crée les fiches des saisons proches absentes du catalogue (filet de couverture : ANN ne connaît que ~12 800 anime contre ~30 000 chez MAL)
+    - `scripts/enrich-mal.mjs` — API MAL v2, **reprenable** (`mal_synced_at`), mieux classés d'abord, borné à 330 min par passage sous le plafond de 6 h ; quand plus rien n'est en attente, il rafraîchit les séries en cours/à venir et répare les relations abîmées
     - `scripts/compute-trending.mjs` — score de tendance + relevé quotidien dans `catalog_trend_snapshot`
 
   **Piège de popularité :** la colonne `popularity` est le *rang* MyAnimeList (1 = le plus populaire), pas un volume — elle se trie en **croissant**. Le volume est `members`. Trier `popularity` en décroissant affichait les fiches les plus obscures en page d'accueil.
@@ -37,7 +38,7 @@ Tracker anime/manga (à terme : le meilleur, cible = millions d'utilisateurs). I
 - Les pages (`src/pages/*.jsx`) gèrent leurs propres appels Supabase directement (pas de couche service séparée) et reçoivent `user`/`profile`/`setProfile` en props depuis `App.jsx`.
 - Commentaires de section en français avec bannières `/* ─── Titre ─── */` — à respecter dans le style existant.
 - Le fichier App.css a connu plusieurs refontes successives (sections "COCON", "v3", etc.) qui se **surchargent en cascade** : la même classe peut être définie plusieurs fois plus loin dans le fichier. Toujours vérifier avec Grep si une classe existe déjà avant d'en ajouter une, et regarder à quel endroit du fichier l'ajouter (l'ordre compte).
-- Pas de tests, pas de CI configurée à ce jour.
+- Pas de tests unitaires. **CI minimale** depuis le 2026-09-20 : `.github/workflows/ci.yml` lance `npm run lint` et `npm run build` à chaque push (le lint passe à zéro erreur, ne pas le laisser repartir à la dérive).
 
 ## Thème clair/sombre — design tokens
 
