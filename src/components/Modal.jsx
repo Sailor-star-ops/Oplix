@@ -46,8 +46,25 @@ function SectionTitle({ icon, children }) {
   )
 }
 
+/* Anime News Network donne des noms, jamais de portraits : afficher une
+   balise image vide laissait un carré gris par personne. À défaut de photo,
+   on montre les initiales — ça reste lisible et ça a l'air voulu. */
+function Portrait({ src, nom, classe }) {
+  if (src) return <img className={classe} src={src} alt={nom || ''} onError={ev => (ev.target.style.display = 'none')} />
+  const initiales = (nom || '?')
+    .split(/\s+/)
+    .slice(0, 2)
+    .map(m => m.charAt(0).toUpperCase())
+    .join('')
+  return <span className={`${classe} mi__initiales`} aria-hidden="true">{initiales}</span>
+}
+
 function Modal({ anime, onClose }) {
   const [activeTab, setActiveTab] = useState('info')
+  // Une fiche majeure peut porter cent personnes à l'équipe : on en montre
+  // une poignée, le reste est à un clic.
+  const [toutEquipe, setToutEquipe] = useState(false)
+  const [tousPersos, setTousPersos] = useState(false)
   const [posterZoom, setPosterZoom] = useState(false)
 
   useEffect(() => {
@@ -272,9 +289,9 @@ function Modal({ anime, onClose }) {
                   <div className="mi__block">
                     <SectionTitle icon="fa-user-tie">Équipe</SectionTitle>
                     <div className="mi__staff-grid">
-                      {anime.staff.edges.map((e, i) => (
+                      {(toutEquipe ? anime.staff.edges : anime.staff.edges.slice(0, 8)).map((e, i) => (
                         <div className="mi__staff-card" key={i}>
-                          <img src={e.node?.image?.medium} alt="" onError={ev => ev.target.style.display = 'none'} />
+                          <Portrait src={e.node?.image?.medium} nom={e.node?.name?.full} classe="mi__staff-img" />
                           <div>
                             <div className="mi__staff-name">{e.node?.name?.full}</div>
                             <div className="mi__staff-role">{e.role}</div>
@@ -282,6 +299,11 @@ function Modal({ anime, onClose }) {
                         </div>
                       ))}
                     </div>
+                    {anime.staff.edges.length > 8 && (
+                      <button className="mi__voir-plus" onClick={() => setToutEquipe(v => !v)}>
+                        {toutEquipe ? 'Réduire' : `Voir les ${anime.staff.edges.length} membres de l'équipe`}
+                      </button>
+                    )}
                   </div>
                 )}
                 {anime.tags?.length > 0 && (
@@ -303,24 +325,11 @@ function Modal({ anime, onClose }) {
             {activeTab === 'chars' && (
               <div className="mi__pane">
                 <div className="mi__chars-grid">
-                  {anime.characters?.edges?.map((e, i) => (
+                  {(tousPersos ? anime.characters?.edges : anime.characters?.edges?.slice(0, 12))?.map((e, i) => (
                     <div className="mi__char-card" key={i}>
-                      {/* Anime News Network fournit les noms sans portraits :
-                          on n'affiche le bloc image que s'il y a vraiment
-                          quelque chose à montrer, plutôt qu'une vignette cassée. */}
-                      {(e.node?.image?.large || e.voiceActors?.[0]?.image?.medium) && (
-                        <div className="mi__char-imgs">
-                          {e.node?.image?.large && (
-                            <img className="mi__char-img" src={e.node.image.large} alt={e.node?.name?.full}
-                              onError={ev => ev.target.style.display = 'none'} />
-                          )}
-                          {e.voiceActors?.[0]?.image?.medium && (
-                            <img className="mi__va-img" src={e.voiceActors[0].image.medium}
-                              alt={e.voiceActors[0].name?.full} title={e.voiceActors[0].name?.full}
-                              onError={ev => ev.target.style.display = 'none'} />
-                          )}
-                        </div>
-                      )}
+                      <div className="mi__char-imgs">
+                        <Portrait src={e.node?.image?.large} nom={e.node?.name?.full} classe="mi__char-img" />
+                      </div>
                       <div>
                         <div className="mi__char-name">{e.node?.name?.full}</div>
                         <div className="mi__char-role" style={e.role === 'MAIN' ? { color: ac } : {}}>{roleLabel(e.role)}</div>
@@ -336,6 +345,11 @@ function Modal({ anime, onClose }) {
                     </div>
                   ))}
                 </div>
+                {anime.characters?.edges?.length > 12 && (
+                  <button className="mi__voir-plus" onClick={() => setTousPersos(v => !v)}>
+                    {tousPersos ? 'Réduire' : `Voir les ${anime.characters.edges.length} personnages`}
+                  </button>
+                )}
               </div>
             )}
 
