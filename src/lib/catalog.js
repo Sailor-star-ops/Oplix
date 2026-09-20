@@ -422,9 +422,12 @@ export function getSeason() {
 
 export function stripHtml(html, maxLen = 500) {
   if (!html) return "";
-  const d = document.createElement("div");
-  d.innerHTML = html;
-  const text = (d.textContent || d.innerText || "").replace(/\n+/g, " ").trim();
+  // DOMParser plutôt qu'un div + innerHTML : innerHTML déclenche le chargement
+  // des ressources, donc le onerror d'une balise <img> piégée, même sur un
+  // élément jamais inséré dans la page. Les synopsis viennent de sources
+  // externes (MyAnimeList, ANN) : on ne leur fait pas confiance à ce point.
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const text = (doc.body?.textContent || "").replace(/\n+/g, " ").trim();
   return text.length > maxLen ? text.substring(0, maxLen) + "…" : text;
 }
 

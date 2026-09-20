@@ -27,6 +27,7 @@
 import { supabaseAdmin, sleep, upsertInChunks } from "./lib/supabaseAdmin.mjs";
 import { parseAnnResponse, parseAnnReport, parseVintage } from "./lib/annXml.mjs";
 import { fromAnnId, titleKey } from "./lib/ids.mjs";
+import { normalizeGenres } from "./lib/genres.mjs";
 
 const REPORTS_URL = "https://www.animenewsnetwork.com/encyclopedia/reports.xml";
 const DETAIL_URL = "https://cdn.animenewsnetwork.com/encyclopedia/api.xml";
@@ -212,7 +213,7 @@ async function syncAnime() {
           thumbnail_url: prefer(existing, "thumbnail_url", c._annCover),
 
           // Colonnes `not null` : jamais de null, tableau vide au pire.
-          genres: prefer(existing, "genres", rec.genres, []),
+          genres: normalizeGenres(prefer(existing, "genres", rec.genres, [])),
           // Les thèmes ANN viennent s'ajouter aux tags du dataset, pas les remplacer.
           tags: [...new Set([...(existing.tags || []), ...rec.themes])],
         });
@@ -319,7 +320,7 @@ async function syncManga() {
           start_date: prefer(match, "start_date", c._annStart),
 
           // Colonnes `not null` : jamais de null, tableau vide au pire.
-          genres: prefer(match, "genres", rec.genres, []),
+          genres: normalizeGenres(prefer(match, "genres", rec.genres, [])),
           authors: prefer(match, "authors", annAuthors, []),
 
           last_synced_at: new Date().toISOString(),
