@@ -202,9 +202,21 @@ function App() {
     await supabase.auth.signOut();
   };
 
-  const handleOpenModal = (anime) => {
+  /* Les listes ne chargent qu'un jeu de colonnes réduit (voir LIST_COLS dans
+     catalog.js) : personnages, équipe, titres multilingues et liens officiels
+     n'y sont pas. La fiche détaillée les recharge donc à l'ouverture — sans
+     ça elle s'affiche à moitié vide, ce qui arrivait aussi quand une page lui
+     passait un objet bricolé à la main (Collection, jeu du jour). */
+  const handleOpenModal = async (anime) => {
     setSelectedAnime(anime);
     setModalOpen(true);
+    if (!anime?.id) return;
+    try {
+      const [complet] = await fetchAllByIds([anime.id]);
+      if (complet) setSelectedAnime((actuel) => (actuel?.id === complet.id ? complet : actuel));
+    } catch (e) {
+      console.error("Chargement de la fiche complète impossible :", e);
+    }
   };
 
   /* ─── Fil d'activité : événements structurés, jamais de texte libre ─── */

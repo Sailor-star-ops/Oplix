@@ -17,6 +17,27 @@ import { supabase } from "./supabase";
 
 const TABLE = { ANIME: "catalog_anime", MANGA: "catalog_manga" };
 
+/* Colonnes suffisantes pour une liste (carte, résultat de recherche, hero).
+   `select=*` ramenait aussi les gros champs JSON — personnages, équipe,
+   titres multilingues, liens, génériques, relations — soit plusieurs
+   kilo-octets par ligne qui ne servent qu'à la fiche détaillée. Mesuré le
+   2026-09-20 sur une recherche triée : 3,07 s avec `*`, 0,33 s sans. Au-delà
+   de la lenteur, la requête dépassait le délai maximal et revenait en erreur
+   500 dans le navigateur. La fiche détaillée, elle, recharge la ligne
+   complète (voir handleOpenModal dans App.jsx). */
+const LIST_COLS =
+  "id, mal_id, ann_id, title_romaji, title_english, title_native, synonyms, type, status, " +
+  "episodes, duration_minutes, season, season_year, start_date, end_date, studios, genres, tags, " +
+  "cover_url, thumbnail_url, synopsis, source_type, country_of_origin, age_rating, nsfw_level, " +
+  "score, popularity, members, rank_overall, trending_score, broadcast_day, broadcast_time";
+
+const LIST_COLS_MANGA =
+  "id, mal_id, ann_id, title_romaji, title_english, title_native, synonyms, status, chapters, volumes, " +
+  "authors, publisher, demographic, genres, tags, cover_url, synopsis, start_date, country_of_origin, " +
+  "score, popularity, members, rank_overall, trending_score";
+
+const colsDeListe = (type) => (type === "MANGA" ? LIST_COLS_MANGA : LIST_COLS);
+
 const WEEKDAYS = {
   Sundays: 0,
   Mondays: 1,
@@ -341,7 +362,7 @@ function excludeAdult(q, type) {
 }
 
 export async function fetchTrending({ page = 1, perPage = 50, isAdult = false } = {}) {
-  let base = supabase.from("catalog_anime").select("*");
+  let base = supabase.from("catalog_anime").select(LIST_COLS);
   if (!isAdult) base = excludeAdult(base, "ANIME");
   const { data, error } = await orderByPopularity(
     base
@@ -355,7 +376,7 @@ export async function fetchTrending({ page = 1, perPage = 50, isAdult = false } 
 }
 
 export async function fetchSeasonal({ season, year, page = 1, perPage = 50, isAdult = false } = {}) {
-  let q = supabase.from("catalog_anime").select("*").eq("season", season).eq("season_year", year);
+  let q = supabase.from("catalog_anime").select(LIST_COLS).eq("season", season).eq("season_year", year);
   if (!isAdult) q = excludeAdult(q, "ANIME");
   const { data, error } = await orderByPopularity(q).range((page - 1) * perPage, page * perPage - 1);
   if (error) throw error;
@@ -402,7 +423,7 @@ export async function searchMedia({
   withCount = false,
 } = {}) {
   const table = TABLE[type] || TABLE.ANIME;
-  let q = supabase.from(table).select("*", withCount ? { count: "exact" } : undefined);
+  let q = supabase.from(table).select(colsDeListe(type), withCount ? { count: "exact" } : undefined);
 
   if (search) {
     const safe = search.replace(/[,()%]/g, " ").trim();
@@ -445,7 +466,7 @@ export async function searchMedia({
 export async function fetchAiringAnime({ isAdult = false } = {}) {
   let q = supabase
     .from("catalog_anime")
-    .select("*")
+    .select(LIST_COLS)
     .eq("status", "RELEASING")
     .not("broadcast_day", "is", null);
   if (!isAdult) q = excludeAdult(q, "ANIME");
