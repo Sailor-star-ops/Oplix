@@ -17,7 +17,7 @@
 // principale ; ce script n'est qu'un complément de couverture.
 //
 // Usage :
-//   node scripts/sync-mal-season.mjs             # 4 saisons autour d'aujourd'hui
+//   node scripts/sync-mal-season.mjs             # 6 saisons autour d'aujourd'hui
 //   node scripts/sync-mal-season.mjs --dry-run   # n'écrit rien
 //   node scripts/sync-mal-season.mjs --saisons 8 # remonte plus loin
 
@@ -31,7 +31,10 @@ const DRY = args.includes("--dry-run");
 const NB_SAISONS = (() => {
   const i = args.indexOf("--saisons");
   const n = i === -1 ? NaN : parseInt(args[i + 1], 10);
-  return Number.isFinite(n) ? n : 4;
+  // Six saisons : une en arrière et quatre en avant. Avec quatre seulement,
+  // la saison encore lointaine (printemps 2027 au 2026-09-20) restait hors
+  // couverture, or c'est là que sortent les annonces les plus attendues.
+  return Number.isFinite(n) ? n : 6;
 })();
 
 const SAISONS = ["winter", "spring", "summer", "fall"];
@@ -90,6 +93,9 @@ async function malSaison(annee, saison) {
     if (res.status === 401 || res.status === 403) {
       throw new Error("FATAL: MyAnimeList a refusé la requête — vérifie MAL_CLIENT_ID.");
     }
+    // Une saison trop lointaine n'existe pas encore chez MyAnimeList : ce
+    // n'est pas une erreur, il n'y a simplement rien à récupérer.
+    if (res.status === 404) return titres;
     if (!res.ok) throw new Error(`HTTP ${res.status} sur ${annee}/${saison}`);
     const json = await res.json();
     titres.push(...(json.data || []).map((d) => d.node));
