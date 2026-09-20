@@ -12,6 +12,7 @@ import Profile from "./pages/Profile";
 import PublicCollection from "./pages/Publiccollection";
 import PublicProfile from "./pages/Publicprofile";
 import Social from "./pages/Social";
+import Daily from "./pages/Daily";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { supabase } from "./lib/supabase";
 import { fetchAllByIds, calcStats } from "./lib/catalog";
@@ -475,6 +476,7 @@ function App() {
           />
         )}
         {tab === "search" && <Explorer onOpenModal={handleOpenModal} />}
+        {tab === "daily" && <Daily user={user} onOpenModal={handleOpenModal} />}
         {tab === "profile" && (
           <Profile
             user={user}

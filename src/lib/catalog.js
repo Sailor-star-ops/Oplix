@@ -392,9 +392,17 @@ export async function searchMedia({
   page = 1,
   perPage = 20,
   isAdult = false,
+  // Le comptage exact coûte cher : PostgREST doit parcourir toutes les lignes
+  // qui passent les filtres, et le filtre « contenu adulte » porte sur deux
+  // colonnes tableau, qu'aucun index ne sert en exclusion. Mesuré le
+  // 2026-09-20 : 137 ms sans le compte, 2,8 s avec — assez pour dépasser le
+  // délai maximal d'une requête et renvoyer une erreur 500 au navigateur.
+  // Les écrans qui affichent un nombre de résultats le demandent
+  // explicitement ; l'autocomplétion, elle, n'en a pas besoin.
+  withCount = false,
 } = {}) {
   const table = TABLE[type] || TABLE.ANIME;
-  let q = supabase.from(table).select("*", { count: "exact" });
+  let q = supabase.from(table).select("*", withCount ? { count: "exact" } : undefined);
 
   if (search) {
     const safe = search.replace(/[,()%]/g, " ").trim();
@@ -418,7 +426,16 @@ export async function searchMedia({
   const { data, error, count } = await q;
   if (error) throw error;
   const media = await mapRows(data || [], type);
-  return { media, pageInfo: { total: count || 0, currentPage: page, hasNextPage: page * perPage < (count || 0) } };
+  return {
+    media,
+    pageInfo: {
+      total: count ?? null,
+      currentPage: page,
+      // Sans comptage, une page pleine signifie qu'il reste probablement
+      // quelque chose derrière : c'est tout ce dont la pagination a besoin.
+      hasNextPage: count != null ? page * perPage < count : (data || []).length === perPage,
+    },
+  };
 }
 
 /* ─── Calendrier de diffusion (remplace Q_WEEK local de Calendar.jsx) ─

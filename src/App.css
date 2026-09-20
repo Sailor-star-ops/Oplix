@@ -4119,3 +4119,65 @@ button.tb__pill:hover { border-color: rgba(34,211,238,.4); background: rgba(34,2
   font-size: 30px;
 }
 .card--missing .card-info h3 { color: var(--text-4); }
+
+/* ─── Jeu du jour (Daily.jsx) ────────────────────────────────────────── */
+.jeu-wrap { max-width: 620px; margin: 0 auto; padding: 32px 20px 80px; }
+.jeu-head { margin-bottom: 22px; }
+.jeu-title { font-family: 'Space Grotesk', sans-serif; font-size: 30px; color: var(--text-1); margin-bottom: 6px; }
+.jeu-sub { color: var(--text-5); font-size: 14px; }
+.jeu-skel { height: 220px; border-radius: 18px; background: var(--bg-surface-2); }
+
+.jeu-card {
+  background: var(--bg-surface);
+  border: 1px solid rgba(var(--overlay-rgb), .08);
+  border-radius: 18px;
+  padding: 6px 18px;
+}
+.jeu-row { display: flex; gap: 14px; padding: 13px 0; border-top: 1px solid rgba(var(--overlay-rgb), .06); }
+.jeu-row:first-child { border-top: 0; }
+.jeu-k { width: 128px; flex: none; color: var(--text-5); font-size: 13px; }
+.jeu-v { color: var(--text-1); font-size: 15px; }
+.jeu-row--locked .jeu-v { color: var(--text-7); font-style: italic; }
+
+.jeu-search { position: relative; margin-top: 18px; }
+.jeu-input {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(var(--accent-rgb), .35);
+  background: var(--bg-surface-2);
+  color: var(--text-1);
+  font-size: 15px;
+}
+.jeu-input:focus { outline: none; border-color: var(--accent); }
+.jeu-sugg {
+  position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 5;
+  background: var(--bg-elevated);
+  border: 1px solid rgba(var(--overlay-rgb), .1);
+  border-radius: 14px; overflow: hidden; list-style: none;
+}
+.jeu-sugg button {
+  width: 100%; display: flex; justify-content: space-between; gap: 12px;
+  padding: 11px 16px; background: none; border: 0; cursor: pointer;
+  color: var(--text-2); font-size: 14px; text-align: left;
+}
+.jeu-sugg button:hover { background: var(--bg-hover); color: var(--text-1); }
+.jeu-sugg small { color: var(--text-6); }
+
+.jeu-essais { list-style: none; margin-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+.jeu-essais li {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 11px 16px; border-radius: 12px;
+  background: var(--bg-surface-2); font-size: 14px;
+}
+.jeu-essais li.jeu-ok { background: rgba(var(--accent-rgb), .14); }
+.jeu-num { color: var(--text-6); font-size: 12px; width: 14px; flex: none; }
+.jeu-titre { color: var(--text-1); flex: 1; }
+.jeu-detail { color: var(--text-5); font-size: 12.5px; text-align: right; }
+
+.jeu-fin { margin-top: 24px; text-align: center; }
+.jeu-grille { font-size: 26px; letter-spacing: 4px; margin-bottom: 12px; }
+.jeu-reponse { color: var(--text-2); font-size: 15px; margin-bottom: 18px; }
+.jeu-reponse strong { color: var(--accent); }
+.jeu-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.jeu-demain { margin-top: 16px; }

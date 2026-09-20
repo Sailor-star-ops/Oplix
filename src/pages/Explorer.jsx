@@ -114,6 +114,10 @@ function Explorer({ onOpenModal, initialQuery }) {
       page: targetPage,
       isAdult: false,
       sort: [filters.sort],
+      // Seul écran qui affiche un nombre de résultats : il paie le comptage,
+      // les autres appels (autocomplétion du jeu, genre dominant de l'accueil)
+      // s'en passent.
+      withCount: true,
     }
     if (query.trim()) vars.search = query.trim()
     if (filters.genres.length) vars.genre_in = filters.genres

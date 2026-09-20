@@ -106,6 +106,7 @@ function Sidebar({
 }) {
   const personalNav = [
     { id: "home", icon: "fa-home", label: "Accueil" },
+    { id: "daily", icon: "fa-dice-d6", label: "Animé du jour" },
     { id: "search", icon: "fa-compass", label: "Explorer" },
     { id: "calendar", icon: "fa-calendar-alt", label: "Calendrier" },
     {
