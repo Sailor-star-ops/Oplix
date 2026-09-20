@@ -211,7 +211,19 @@ function Collection({ watchlist, onOpenModal, user, onAuthOpen }) {
 
             {filtered.length > 0 && (
               <div className="grid-cards">
-                {filtered.map(item => (
+                {filtered.map(item => item._missing ? (
+                  /* L'oeuvre n'est plus (ou pas encore) au catalogue : ouvrir
+                     sa fiche afficherait une modale vide. On l'annonce. */
+                  <div key={item.id} className="card card--missing" title={`Identifiant ${item.anilist_id}`}>
+                    <div className="card-img-container card-img-container--missing">
+                      <i className="fa-regular fa-file-circle-question"></i>
+                    </div>
+                    <div className="card-info">
+                      <h3>Fiche indisponible</h3>
+                      <p>Absente du catalogue</p>
+                    </div>
+                  </div>
+                ) : (
                   <div key={item.id} className="card" onClick={() => onOpenModal(item._anime || item)}>
                     <div className="card-img-container">
                       <img src={item.image} className="card-img" loading="lazy" alt={item.title} />

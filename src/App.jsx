@@ -112,7 +112,12 @@ function App() {
         return {
           id: row.id,
           anilist_id: row.anilist_id,
-          title: m ? m.title?.english || m.title?.romaji : "Inconnu",
+          // Une entree peut pointer vers une oeuvre absente du catalogue
+          // (identifiant AniList d'origine que nos sources ne connaissent pas).
+          // On garde la ligne — c'est la liste de l'utilisateur — mais on la
+          // signale au lieu d'afficher une carte vide intitulee "Inconnu".
+          _missing: !m,
+          title: m ? m.title?.english || m.title?.romaji : "Fiche indisponible",
           image: m?.coverImage?.extraLarge || m?.coverImage?.large || "",
           color: m?.coverImage?.color || null,
           format: m?.format || "",

@@ -146,7 +146,25 @@ for (const r of rows) {
   groupes.get(racine).push(r);
 }
 
-const candidats = [...groupes.values()].filter((g) => g.length > 1 && groupeFusionnable(g));
+// Un groupe relie par le titre peut melanger une vraie paire de doublons et
+// une oeuvre homonyme sans rapport : rejeter le groupe entier laissait passer
+// des doublons evidents (deux fiches au meme mal_id, bloquees parce qu'une
+// troisieme fiche homonyme trainait dans le groupe). On decoupe donc par
+// identifiant, et les fiches sans identifiant sont ecartees des qu'il y a
+// plus d'un paquet possible.
+function sousGroupes(g) {
+  const mals = [...new Set(g.map((r) => r.mal_id).filter(Boolean))];
+  const anns = [...new Set(g.map((r) => r.ann_id).filter(Boolean))];
+  if (mals.length <= 1 && anns.length <= 1) return [g];
+  const paquets = [];
+  for (const mal of mals) paquets.push(g.filter((r) => r.mal_id === mal));
+  for (const ann of anns) paquets.push(g.filter((r) => !r.mal_id && r.ann_id === ann));
+  return paquets;
+}
+
+const candidats = [...groupes.values()]
+  .flatMap((g) => (g.length > 1 ? sousGroupes(g) : []))
+  .filter((g) => g.length > 1 && groupeFusionnable(g));
 console.log(`${candidats.length} groupes fusionnables.`);
 if (candidats.length === 0) process.exit(0);
 

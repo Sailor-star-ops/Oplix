@@ -76,10 +76,6 @@ begin
   end if;
 end $$;
 
--- ─── 3. Tables mortes, à supprimer quand tu es sûr de toi ────────────
--- `calendar` est vide et n'est référencée nulle part dans le code.
--- `friendships_old` est l'ancienne table d'amitiés, gardée pour rollback
--- depuis la migration vers `follows` (3 lignes).
--- Décommente seulement si tu ne veux plus pouvoir revenir en arrière :
--- drop table if exists calendar;
--- drop table if exists friendships_old;
+-- ─── 3. Tables mortes ────────────────────────────────────────────────
+-- Déplacé dans supabase_menage_v5.sql, qui recopie le contenu de
+-- friendships_old avant de la supprimer.

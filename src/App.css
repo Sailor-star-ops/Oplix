@@ -4106,3 +4106,16 @@ button.tb__pill:hover { border-color: rgba(34,211,238,.4); background: rgba(34,2
   border-radius: 10px;
   word-break: break-word;
 }
+
+/* ─── Entrée de liste dont la fiche n'est pas au catalogue ───────────── */
+.card--missing { cursor: default; opacity: .75; }
+.card-img-container--missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 2 / 3;
+  background: var(--bg-surface-2);
+  color: var(--text-6);
+  font-size: 30px;
+}
+.card--missing .card-info h3 { color: var(--text-4); }
