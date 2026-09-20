@@ -217,6 +217,14 @@ function toMediaShape(row, mediaType) {
    Calendar.jsx pour peupler une semaine choisie. Même approximation
    assumée : créneau hebdo MAL, pas un calendrier épisode par épisode. */
 export function computeAiringOccurrence(media, referenceDate) {
+  // Une serie pas encore sortie n'a pas d'episode avant sa date de debut :
+  // sans cette garde, un titre qui demarre le 2 octobre apparaissait aussi
+  // les vendredis de septembre.
+  const debut = media._startDateRaw ? new Date(media._startDateRaw) : null;
+  if (debut && referenceDate < debut) {
+    const airingAt = Math.floor(debut.getTime() / 1000);
+    return { airingAt, episode: 1, premiere: true };
+  }
   if (!media._broadcastDay) return null;
   const targetDow = WEEKDAYS[media._broadcastDay];
   if (targetDow === undefined) return null;
@@ -464,11 +472,17 @@ export async function searchMedia({
    on renvoie les animes en cours de diffusion avec leur créneau hebdo
    approximatif, filtré côté composant sur la semaine affichée. */
 export async function fetchAiringAnime({ isAdult = false } = {}) {
+  // On ne garde pas que les series deja en cours : une saison demarre en
+  // octobre, et fin septembre un calendrier qui n'affiche que le deja-diffuse
+  // parait vide. Les series a venir dont la date de debut est connue y
+  // figurent donc aussi, ce qui donne les premieres.
+  const horizon = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
   let q = supabase
     .from("catalog_anime")
     .select(LIST_COLS)
-    .eq("status", "RELEASING")
-    .not("broadcast_day", "is", null);
+    .in("status", ["RELEASING", "NOT_YET_RELEASED"])
+    .not("start_date", "is", null)
+    .lte("start_date", horizon);
   if (!isAdult) q = excludeAdult(q, "ANIME");
   const { data, error } = await q;
   if (error) throw error;

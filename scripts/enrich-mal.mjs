@@ -63,6 +63,35 @@ const ANIME_STATUS_MAP = {
 const REFRESH_AFTER_DAYS = 7;
 const REFRESH_MAX = { catalog_anime: 400, catalog_manga: 200 };
 
+// Fenêtre d'actualité : une série qui démarre ou se termine dans le mois et
+// demi qui vient, ou qui vient de s'écouler, change vite — statut, créneau de
+// diffusion, nombre d'épisodes. La règle à sept jours laissait la page
+// Calendrier avec 57 créneaux sur 379 séries en cours, et pas une seule série
+// de la saison en cours marquée comme diffusée. Celles-là repassent chaque
+// nuit.
+const FENETRE_ACTU_JOURS = 45;
+const REFRESH_ACTU_MAX = 300;
+
+async function actuRows(table, cols) {
+  const jour = 86_400_000;
+  const debut = new Date(Date.now() - FENETRE_ACTU_JOURS * jour).toISOString().slice(0, 10);
+  const fin = new Date(Date.now() + FENETRE_ACTU_JOURS * jour).toISOString().slice(0, 10);
+  const hier = new Date(Date.now() - jour).toISOString();
+  const { data, error } = await supabaseAdmin
+    .from(table)
+    .select(cols)
+    .not("mal_id", "is", null)
+    .in("status", ["RELEASING", "NOT_YET_RELEASED"])
+    .gte("start_date", debut)
+    .lte("start_date", fin)
+    .lt("mal_synced_at", hier)
+    .order("members", { ascending: false, nullsFirst: false })
+    .order("id", { ascending: true })
+    .limit(REFRESH_ACTU_MAX);
+  if (error) throw new Error(`${table} (fenêtre d'actualité) : ${error.message}`);
+  return data || [];
+}
+
 // Reparation ponctuelle. Jusqu'au 2026-09-20, la table de correspondance des
 // oeuvres liees etait plafonnee a 1000 lignes : 29 668 fiches ont ete ecrites
 // avec une liste de relations vide, et rien ne les reprenait (elles comptent
@@ -222,9 +251,18 @@ async function enrichAnime() {
   const cols =
     "id, mal_id, synopsis, genres, start_date, end_date, title_english, title_native, synonyms, score, status, episodes";
   const pending = await pendingRows("catalog_anime", cols);
+  // La fenêtre d'actualité passe avant tout le reste : c'est elle qui tient le
+  // calendrier à jour.
+  const actu = await actuRows("catalog_anime", cols);
   const stale = pending.length ? [] : await staleRows("catalog_anime", cols);
   const repair = pending.length ? [] : await repairRows(cols);
-  const rows = [...pending, ...stale, ...repair];
+  const vus = new Set();
+  const rows = [...actu, ...pending, ...stale, ...repair].filter((r) => {
+    if (vus.has(r.id)) return false;
+    vus.add(r.id);
+    return true;
+  });
+  if (actu.length) console.log(`${actu.length} fiches de la fenêtre d'actualité à rafraîchir.`);
   const { count: total } = await supabaseAdmin
     .from("catalog_anime")
     .select("id", { count: "exact", head: true })
