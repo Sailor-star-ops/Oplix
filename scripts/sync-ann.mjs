@@ -157,43 +157,178 @@ function prefer(existing, field, annValue, fallback = null) {
 
 /* ─── Phase anime ───────────────────────────────────────────────────── */
 
+// anime-offline-database étant archivé depuis le 2026-07-04, plus rien ne
+// créait de fiche anime : les nouveautés n'entraient jamais au catalogue.
+// ANN publie la liste complète de son encyclopédie (reports.xml), exactement
+// comme pour le manga : on s'en sert donc aussi pour CRÉER les fiches
+// absentes, plus seulement pour enrichir celles qui existent déjà.
+
+// Types ANN -> enum interne (voir FORMAT_LABELS dans src/lib/catalog.js).
+const ANN_TYPE_MAP = {
+  TV: "TV",
+  ONA: "ONA",
+  OAV: "OVA",
+  OVA: "OVA",
+  movie: "MOVIE",
+  special: "SPECIAL",
+  "TV special": "SPECIAL",
+  "music video": "MUSIC",
+  omnibus: "SPECIAL",
+};
+
+const SEASONS = ["WINTER", "SPRING", "SUMMER", "FALL"];
+
+// Saison de diffusion à partir de la date de début (janvier-mars = hiver).
+function seasonOf(startDate) {
+  if (!startDate) return { season: null, season_year: null };
+  const d = new Date(startDate);
+  if (Number.isNaN(d.getTime())) return { season: null, season_year: null };
+  return { season: SEASONS[Math.floor(d.getUTCMonth() / 3)], season_year: d.getUTCFullYear() };
+}
+
+// ANN ne publie pas de statut : on le déduit des dates. Uniquement pour les
+// fiches créées ici — celles qui existent déjà tiennent leur statut de
+// MyAnimeList, qui est à jour (voir enrich-mal.mjs).
+function statusFromDates(start, end) {
+  if (!start) return null;
+  const now = Date.now();
+  if (new Date(start).getTime() > now) return "NOT_YET_RELEASED";
+  if (end && new Date(end).getTime() < now) return "FINISHED";
+  return end ? "RELEASING" : "FINISHED";
+}
+
+// Index de TOUS les titres connus d'une fiche : romaji, anglais, natif et
+// synonymes. Indexer un seul titre ne suffit pas — ANN nomme ses fiches en
+// anglais ("Classroom of the Elite") là où le catalogue porte le romaji
+// ("Youkoso Jitsuryoku Shijou Shugi no Kyoushitsu e"). Un premier essai qui
+// ne comparait que le titre principal a créé 48 doublons sur 135 fiches.
+function indexByTitles(rows) {
+  const byKey = new Map();
+  for (const r of rows) {
+    for (const t of [r.title_romaji, r.title_english, r.title_native]) {
+      const k = titleKey(t);
+      if (!k) continue;
+      if (!byKey.has(k)) byKey.set(k, []);
+      const liste = byKey.get(k);
+      if (!liste.includes(r)) liste.push(r);
+    }
+  }
+  return byKey;
+}
+
+// Renvoie la fiche existante correspondante, `null` si l'œuvre est
+// vraiment nouvelle, ou "AMBIGU" quand plusieurs fiches portent le même titre
+// sans date pour les départager — dans ce cas on ne crée rien, car créer un
+// doublon coûte plus cher que rater une fiche (un doublon se voit dans
+// l'app et son identifiant ne peut plus jamais bouger).
+const AMBIGU = "AMBIGU";
+
+function findExisting(rec, byKey, annYear) {
+  const cles = new Set();
+  const ajoute = (t) => {
+    const k = titleKey(t);
+    if (k) cles.add(k);
+  };
+  ajoute(rec.mainTitle);
+  ajoute(rec.name);
+  // Seulement le titre principal de chaque langue, pas toutes les variantes :
+  // ANN range dans les titres alternatifs des libelles d'oeuvres voisines, ce
+  // qui reliait Kabaneri a un film coreen sans rapport lors d'un essai.
+  ajoute((rec.titles?.EN || [])[0]);
+  ajoute((rec.titles?.JA || [])[0]);
+
+  const libres = [];
+  for (const k of cles) {
+    for (const r of byKey.get(k) || []) {
+      // Une fiche déjà reliée à un AUTRE identifiant ANN n'est pas candidate.
+      if (!r.ann_id && !libres.includes(r)) libres.push(r);
+    }
+  }
+  if (libres.length === 0) return null;
+
+  // Une fiche dont l'annee de debut differe de plus d'un an n'est pas la meme
+  // oeuvre : une suite ou un remake porte souvent le meme titre.
+  const anneeCompatible = (r) => {
+    const y = r.start_date ? parseInt(r.start_date.slice(0, 4), 10) : null;
+    if (!annYear || !y) return true;
+    return Math.abs(y - annYear) <= 1;
+  };
+  const plausibles = libres.filter(anneeCompatible);
+  if (plausibles.length === 0) return null;
+  if (plausibles.length === 1) return plausibles[0];
+
+  // Plusieurs fiches restent plausibles : on prefere ne rien faire plutot que
+  // de relier la mauvaise.
+  return AMBIGU;
+}
+
 async function syncAnime() {
   console.log("\n═══ Anime ═══");
-  let rows = await fetchAllRows(
+
+  console.log("Récupération de la liste complète des anime ANN...");
+  let items = parseAnnReport(await annFetch(`${REPORTS_URL}?id=155&type=anime&nlist=all`));
+  console.log(`${items.length} anime listés par ANN.`);
+  if (SYNC_LIMIT) items = items.slice(0, SYNC_LIMIT);
+
+  const rows = await fetchAllRows(
     "catalog_anime",
-    "id, ann_id, synopsis, cover_url, thumbnail_url, start_date, end_date, title_english, title_native, genres, tags",
+    "id, ann_id, synopsis, cover_url, thumbnail_url, start_date, end_date, title_romaji, title_english, title_native, synonyms, genres, tags, type, status, episodes, season, season_year",
   );
-  rows = rows.filter((r) => r.ann_id);
-  if (SYNC_LIMIT) rows = rows.slice(0, SYNC_LIMIT);
 
-  console.log(`${rows.length} anime portent un identifiant ANN.`);
-  if (rows.length === 0) {
-    console.log("Rien à faire — lance d'abord scripts/sync-anime.mjs pour récupérer les ann_id.");
-    return;
-  }
+  const byAnnId = new Map();
+  for (const r of rows) if (r.ann_id) byAnnId.set(r.ann_id, r);
+  const byKey = indexByTitles(rows);
+  console.log(`${rows.length} fiches en base, dont ${byAnnId.size} déjà reliées à ANN.`);
 
-  const byAnnId = new Map(rows.map((r) => [r.ann_id, r]));
-  const ids = [...byAnnId.keys()];
+  const ids = items.map((it) => it.ann_id);
   const batches = Math.ceil(ids.length / BATCH_SIZE);
   console.log(`${batches} requêtes de ${BATCH_SIZE} titres, ~${Math.round((batches * RATE_LIMIT_MS) / 1000)}s.`);
 
   let updated = 0;
+  let created = 0;
+  let linked = 0;
+  let ambigus = 0;
   let failed = 0;
 
   for (let i = 0; i < ids.length; i += BATCH_SIZE) {
     const chunk = ids.slice(i, i + BATCH_SIZE);
     try {
       const records = await fetchDetails("anime", chunk);
-      const updates = [];
+      const rowsById = new Map();
+      let createdInBatch = 0;
+      let linkedInBatch = 0;
 
       for (const rec of records) {
-        const existing = byAnnId.get(rec.ann_id);
-        if (!existing) continue;
         const c = annCommonFields(rec);
+        const annYear = c._annStart ? parseInt(c._annStart.slice(0, 4), 10) : null;
+        let match = byAnnId.get(rec.ann_id);
+        let estNouvelle = false;
+        if (!match) {
+          const trouve = findExisting(rec, byKey, annYear);
+          if (trouve === AMBIGU) {
+            ambigus++;
+            continue;
+          }
+          match = trouve;
+          if (match) linkedInBatch++;
+          else estNouvelle = true;
+        }
+        // Sans titre exploitable, impossible de créer une fiche utilisable.
+        if (!match && !(rec.mainTitle || rec.name)) continue;
+
+        const id = match ? match.id : fromAnnId(rec.ann_id);
+        // Deux fiches ANN peuvent retomber sur la même ligne : deux fois le
+        // même id dans un upsert fait échouer toute la requête.
+        if (!id || rowsById.has(id)) continue;
+        if (estNouvelle) createdInBatch++;
+
+        const start = prefer(match, "start_date", c._annStart);
+        const end = prefer(match, "end_date", c._annEnd);
+        const saison = seasonOf(start);
 
         // Jeu de clés strictement identique pour toutes les lignes du lot.
-        updates.push({
-          id: existing.id,
+        rowsById.set(id, {
+          id,
           ann_id: c.ann_id,
           titles: c.titles,
           staff: c.staff,
@@ -204,33 +339,71 @@ async function syncAnime() {
           copyright_notice: c.copyright_notice,
           ann_synced_at: c.ann_synced_at,
 
-          synopsis: prefer(existing, "synopsis", c._annSynopsis),
-          title_english: prefer(existing, "title_english", c._annEnglish),
-          title_native: prefer(existing, "title_native", c._annNative),
-          start_date: prefer(existing, "start_date", c._annStart),
-          end_date: prefer(existing, "end_date", c._annEnd),
-          cover_url: prefer(existing, "cover_url", c._annCover),
-          thumbnail_url: prefer(existing, "thumbnail_url", c._annCover),
+          title_romaji: prefer(match, "title_romaji", rec.mainTitle || rec.name),
+          synopsis: prefer(match, "synopsis", c._annSynopsis),
+          title_english: prefer(match, "title_english", c._annEnglish),
+          title_native: prefer(match, "title_native", c._annNative),
+          start_date: start,
+          end_date: end,
+          cover_url: prefer(match, "cover_url", c._annCover),
+          thumbnail_url: prefer(match, "thumbnail_url", c._annCover),
+
+          // Colonnes que MyAnimeList tient à jour : on ne les pose que si
+          // elles sont vides, donc en pratique sur les fiches créées ici.
+          type: prefer(match, "type", ANN_TYPE_MAP[rec.type] || null),
+          status: prefer(match, "status", statusFromDates(start, end)),
+          episodes: prefer(match, "episodes", rec.episodes),
+          season: prefer(match, "season", saison.season),
+          season_year: prefer(match, "season_year", saison.season_year),
 
           // Colonnes `not null` : jamais de null, tableau vide au pire.
-          genres: normalizeGenres(prefer(existing, "genres", rec.genres, [])),
-          // Les thèmes ANN viennent s'ajouter aux tags du dataset, pas les remplacer.
-          tags: [...new Set([...(existing.tags || []), ...rec.themes])],
+          genres: normalizeGenres(prefer(match, "genres", rec.genres, [])),
+          tags: [...new Set([...(match?.tags || []), ...rec.themes])],
+          last_synced_at: new Date().toISOString(),
         });
+
+        if (estNouvelle) {
+          // Évite de recréer la même œuvre si elle revient dans un lot suivant
+          // sous un autre de ses titres.
+          const creee = {
+            id,
+            ann_id: rec.ann_id,
+            start_date: c._annStart,
+            title_romaji: rec.mainTitle || rec.name,
+            title_english: c._annEnglish,
+            title_native: c._annNative,
+            synonyms: [],
+          };
+          for (const [k, liste] of indexByTitles([creee])) {
+            if (!byKey.has(k)) byKey.set(k, []);
+            byKey.get(k).push(...liste);
+          }
+        }
       }
 
-      // upsert plutôt qu'update ligne à ligne : une requête par lot de 50.
-      const done = await upsertInChunks("catalog_anime", updates);
-      updated += done;
+      const lot = [...rowsById.values()];
+      const done = await upsertInChunks("catalog_anime", lot);
+      if (done > 0) {
+        updated += done;
+        created += createdInBatch;
+        linked += linkedInBatch;
+      } else if (lot.length > 0) {
+        failed++;
+      }
       const pct = Math.round(((i + chunk.length) / ids.length) * 100);
-      process.stdout.write(`\r  ${pct}% — ${updated} anime enrichis, ${failed} lots en échec   `);
+      process.stdout.write(
+        `\r  ${pct}% — ${updated} fiches écrites (${created} créées, ${linked} rattachées), ${failed} lots en échec   `,
+      );
     } catch (err) {
       failed++;
       console.error(`\n  Lot ${i}-${i + chunk.length} : ${err.message}`);
     }
     await sleep(RATE_LIMIT_MS);
   }
-  console.log(`\nAnime terminé : ${updated} fiches enrichies, ${failed} lots en échec.`);
+  console.log(
+    `\nAnime terminé : ${updated} fiches écrites, dont ${created} créées et ${linked} rattachées à ANN. ` +
+      `${ambigus} fiches ignorées (homonymes indiscernables), ${failed} lots en échec.`,
+  );
 }
 
 /* ─── Phase manga ───────────────────────────────────────────────────── */

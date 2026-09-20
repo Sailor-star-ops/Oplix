@@ -90,6 +90,9 @@ const MANGA_FIELDS = [
   "synopsis", "genres", "main_picture", "status", "num_volumes", "num_chapters",
   "nsfw", "mean", "popularity", "rank", "num_list_users", "alternative_titles",
   "start_date", "end_date", "authors{first_name,last_name}",
+  // Les œuvres liées d'un manga n'étaient jamais demandées : l'onglet
+  // correspondant de la fiche restait vide pour tous les manga.
+  "related_manga", "related_anime",
 ].join(",");
 
 const MANGA_STATUS_MAP = {
@@ -305,6 +308,25 @@ async function enrichAnime() {
 
 /* ─── Manga ─────────────────────────────────────────────────────────── */
 
+// Correspondance ID MyAnimeList -> ID catalogue côté manga, pour que les
+// œuvres liées pointent vers des lignes réellement présentes en base.
+async function malIdMapManga() {
+  const map = new Map();
+  const page = 1000;
+  for (let from = 0; ; from += page) {
+    const { data, error } = await supabaseAdmin
+      .from("catalog_manga")
+      .select("id, mal_id")
+      .not("mal_id", "is", null)
+      .order("id", { ascending: true })
+      .range(from, from + page - 1);
+    if (error) throw new Error(`Table de correspondance manga : ${error.message}`);
+    for (const r of data) map.set(r.mal_id, r.id);
+    if (data.length < page) break;
+  }
+  return map;
+}
+
 async function enrichManga() {
   const cols =
     "id, mal_id, synopsis, genres, cover_url, status, volumes, chapters, start_date, title_english, title_native, authors";
@@ -317,6 +339,10 @@ async function enrichManga() {
     .not("mal_id", "is", null);
   console.log(`\n═══ Manga ═══\n${rows.length} fiches restantes sur ${total} à enrichir.`);
   if (!rows.length) return 0;
+
+  // Une œuvre liée peut être un manga (suite, spin-off) ou l'anime tiré du
+  // manga : les deux tables sont donc nécessaires.
+  const [mangaIds, animeIds] = await Promise.all([malIdMapManga(), malIdMap()]);
 
   let ok = 0;
   let gone = 0;
@@ -354,6 +380,16 @@ async function enrichManga() {
             popularity: rankOrNull(d.popularity),
             members: d.num_list_users ?? null,
             rank_overall: rankOrNull(d.rank),
+            relations: [
+              ...(d.related_manga || []).map((r) => ({
+                id: mangaIds.get(r.node?.id) ?? null,
+                relation_type: r.relation_type,
+              })),
+              ...(d.related_anime || []).map((r) => ({
+                id: animeIds.get(r.node?.id) ?? null,
+                relation_type: r.relation_type,
+              })),
+            ].filter((r) => r.id),
             mal_synced_at: new Date().toISOString(),
           })
           .eq("id", row.id);

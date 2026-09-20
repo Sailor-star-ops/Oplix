@@ -39,6 +39,16 @@ jobs:
 
       - run: npm ci
 
+      # Avant d'enrichir : rattraper les nouveautés que le catalogue ne connaît
+      # pas encore. Les fiches créées ici n'ont pas de mal_synced_at, donc
+      # l'étape suivante les remplit dans la foulée, la nuit même.
+      - name: Nouveautés des saisons proches
+        run: node scripts/sync-mal-season.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
+
       - name: Enrichir depuis MyAnimeList
         run: |
           node scripts/enrich-mal.mjs \

@@ -1,0 +1,37 @@
+name: Lint et build
+
+# Pourquoi : les workflows programmés exécutent le code POUSSÉ. Le 2026-09-14,
+# une version obsolète de sync-anime.mjs a tourné toute une nuit et réinjecté
+# des données qui venaient d'être purgées. Un lint et un build de deux minutes
+# à chaque push valent mieux qu'une nuit de dégâts.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      # Les scripts du catalogue ne sont jamais exécutés ici (ils écrivent en
+      # base et consomment le quota d'API) : on vérifie seulement qu'ils se
+      # chargent sans erreur de syntaxe ni import cassé.
+      - name: Syntaxe des scripts du catalogue
+        run: for f in scripts/*.mjs scripts/lib/*.mjs; do node --check "$f"; done

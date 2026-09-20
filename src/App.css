@@ -4081,3 +4081,28 @@ button.tb__pill:hover { border-color: rgba(34,211,238,.4); background: rgba(34,2
   stroke-linecap: round;
   transition: stroke-dashoffset .1s linear;
 }
+
+/* ─── Garde-fou d'erreur (ErrorBoundary.jsx) ─────────────────────────── */
+.errb {
+  max-width: 520px;
+  margin: 80px auto;
+  padding: 32px 24px;
+  text-align: center;
+  background: var(--bg-surface);
+  border: 1px solid rgba(var(--overlay-rgb), .08);
+  border-radius: 20px;
+}
+.errb__icon { font-size: 34px; color: var(--accent); margin-bottom: 16px; }
+.errb__title { font-family: 'Space Grotesk', sans-serif; font-size: 22px; color: var(--text-1); margin-bottom: 10px; }
+.errb__text { color: var(--text-4); font-size: 14px; line-height: 1.6; margin-bottom: 22px; }
+.errb__actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.errb__details { margin-top: 22px; text-align: left; color: var(--text-6); font-size: 12px; }
+.errb__details summary { cursor: pointer; color: var(--text-5); }
+.errb__details code {
+  display: block;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--bg-surface-2);
+  border-radius: 10px;
+  word-break: break-word;
+}

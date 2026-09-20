@@ -12,6 +12,7 @@ import Profile from "./pages/Profile";
 import PublicCollection from "./pages/Publiccollection";
 import PublicProfile from "./pages/Publicprofile";
 import Social from "./pages/Social";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { supabase } from "./lib/supabase";
 import { fetchAllByIds, calcStats } from "./lib/catalog";
 import "./App.css";
@@ -444,6 +445,10 @@ function App() {
       <div className={`main-content ${SOCIAL_TABS.includes(tab) ? "main-content--social" : ""}`}>
         <Topbar user={user} stats={stats} watchlist={watchlist} onOpenModal={handleOpenModal} theme={theme} onToggleTheme={toggleTheme} />
 
+        {/* Une erreur dans une page ne doit pas emporter toute l'application :
+            la cle sur `tab` remet le garde-fou a zero quand on change de page,
+            sinon l'utilisateur resterait bloque sur le message d'erreur. */}
+        <ErrorBoundary key={tab}>
         {tab === "home" && (
           <Home
             onOpenModal={handleOpenModal}
@@ -485,6 +490,7 @@ function App() {
             onAuthOpen={() => setAuthOpen(true)}
           />
         )}
+        </ErrorBoundary>
       </div>
 
       {modalOpen && selectedAnime && (

@@ -95,6 +95,15 @@ function toCharacterEdges(characters = []) {
   }));
 }
 
+// Classification d'age MyAnimeList ("rx" = hentai) et genres/themes
+// explicites : les deux seuls signaux fiables (voir excludeAdult).
+function isAdultRow(row) {
+  if (row.age_rating === "rx") return true;
+  const mots = ["hentai", "erotica"];
+  const contient = (liste) => (liste || []).some((v) => mots.includes(String(v).toLowerCase()));
+  return contient(row.genres) || contient(row.tags);
+}
+
 function toMediaShape(row, mediaType) {
   const isAnime = mediaType === "ANIME";
   return {
@@ -139,7 +148,9 @@ function toMediaShape(row, mediaType) {
     popularityRank: row.popularity ?? null,
     favourites: 0,
     trending: row.trending_score ?? 0,
-    isAdult: row.nsfw_level === "black",
+    // Meme regle que le filtre excludeAdult ci-dessous : nsfw_level ne vaut
+    // jamais "black" cote MyAnimeList, il ne peut pas servir de signal.
+    isAdult: isAdultRow(row),
     nextAiringEpisode: isAnime ? computeNextAiring(row) : null,
     trailer: null,
     // Pas de "studio" côté manga (pas de source) — on réutilise ce même
@@ -221,11 +232,25 @@ async function hydrateRelations(mediaList) {
   const allIds = [...new Set(idsToFetch.map((e) => e._rawId).filter(Boolean))];
   if (allIds.length === 0) return mediaList;
 
-  const { data } = await supabase
-    .from("catalog_anime")
-    .select("id, title_romaji, title_english, type, cover_url, status, episodes")
-    .in("id", allIds);
-  const byId = new Map((data || []).map((r) => [r.id, r]));
+  // Les deux tables : une œuvre liée peut être un manga (adaptation, œuvre
+  // d'origine). La requête ne regardait que catalog_anime, donc aucune
+  // relation d'un manga ne s'affichait jamais.
+  const [animeRes, mangaRes] = await Promise.all([
+    supabase
+      .from("catalog_anime")
+      .select("id, title_romaji, title_english, type, cover_url, status, episodes")
+      .in("id", allIds),
+    supabase
+      .from("catalog_manga")
+      .select("id, title_romaji, title_english, cover_url, status, chapters")
+      .in("id", allIds),
+  ]);
+
+  const byId = new Map();
+  for (const r of animeRes.data || []) byId.set(r.id, { ...r, _type: "ANIME" });
+  // Un id n'appartient qu'à une seule des deux tables ; en cas de doublon
+  // improbable, l'anime l'emporte (c'est le cas de très loin le plus courant).
+  for (const r of mangaRes.data || []) if (!byId.has(r.id)) byId.set(r.id, { ...r, _type: "MANGA" });
 
   for (const edge of idsToFetch) {
     const r = byId.get(edge._rawId);
@@ -233,11 +258,12 @@ async function hydrateRelations(mediaList) {
       edge.node = {
         id: r.id,
         title: { romaji: r.title_romaji, english: r.title_english },
-        type: "ANIME",
-        format: r.type,
+        type: r._type,
+        format: r._type === "ANIME" ? r.type : "MANGA",
         coverImage: { large: r.cover_url },
         status: r.status,
-        episodes: r.episodes,
+        episodes: r._type === "ANIME" ? r.episodes : null,
+        chapters: r._type === "ANIME" ? null : r.chapters,
       };
     }
   }
