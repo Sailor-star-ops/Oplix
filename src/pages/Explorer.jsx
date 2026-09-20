@@ -311,7 +311,7 @@ function Explorer({ onOpenModal, initialQuery }) {
           <div className="empty-state">
             <i className="fas fa-triangle-exclamation"></i>
             <h3>Oups, la recherche a échoué</h3>
-            <p>AniList n'a pas répondu correctement. Réessaie dans un instant.</p>
+            <p>Le catalogue n&apos;a pas répondu correctement. Réessaie dans un instant.</p>
             <button className="btn btn-primary" onClick={() => runSearch(1, false)} style={{ marginTop: '16px' }}>
               <i className="fas fa-rotate-right"></i> Réessayer
             </button>

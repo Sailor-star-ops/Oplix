@@ -117,6 +117,48 @@ function toRow(entry) {
   };
 }
 
+// Colonnes que le dataset est seul à connaître, et qu'il peut donc réécrire
+// sans rien détruire. TOUT le reste (titres anglais/japonais, synonymes,
+// score, statut, épisodes, jaquette, tags, relations) appartient à
+// enrich-mal.mjs ou sync-ann.mjs : le squelette les renvoyait à null ou à la
+// valeur figée du dataset à CHAQUE passage hebdomadaire, effaçant une semaine
+// d'enrichissement que rien ne refaisait ensuite (enrich-mal.mjs considère ces
+// fiches comme déjà traitées).
+const DATASET_OWNED = [
+  "id",
+  "mal_id",
+  "anidb_id",
+  "kitsu_id",
+  "ann_id",
+  "title_romaji",
+  "type",
+  "duration_minutes",
+  "season",
+  "season_year",
+  "studios",
+  "producers",
+  "last_synced_at",
+];
+
+// Les fiches déjà en base ne reçoivent que les colonnes ci-dessus ; il faut
+// donc savoir lesquelles existent déjà. Tri sur l'id : sans clé unique, la
+// pagination renvoie des doublons et en omet d'autres.
+async function fetchExistingIds() {
+  const ids = new Set();
+  const page = 1000;
+  for (let from = 0; ; from += page) {
+    const { data, error } = await supabaseAdmin
+      .from("catalog_anime")
+      .select("id")
+      .order("id")
+      .range(from, from + page - 1);
+    if (error) throw new Error(`Lecture des ID existants : ${error.message}`);
+    for (const r of data) ids.add(r.id);
+    if (data.length < page) break;
+  }
+  return ids;
+}
+
 async function importDataset() {
   console.log("Téléchargement de anime-offline-database...");
   const res = await fetch(DATASET_URL);
@@ -136,8 +178,20 @@ async function importDataset() {
     console.log(`SYNC_LIMIT actif : réduit à ${rows.length} entrées pour ce run de test.`);
   }
 
-  const done = await upsertInChunks("catalog_anime", rows);
-  console.log(`Phase 1 (squelette) : ${done}/${rows.length} lignes upsertées dans catalog_anime.`);
+  const existing = await fetchExistingIds();
+  const nouvelles = rows.filter((r) => !existing.has(r.id));
+  // Jeu de clés identique pour toutes les lignes du lot (voir upsertInChunks).
+  const connues = rows
+    .filter((r) => existing.has(r.id))
+    .map((r) => Object.fromEntries(DATASET_OWNED.map((k) => [k, r[k]])));
+
+  const doneNew = await upsertInChunks("catalog_anime", nouvelles);
+  const doneKnown = await upsertInChunks("catalog_anime", connues);
+  console.log(
+    `Phase 1 (squelette) : ${doneNew}/${nouvelles.length} nouvelles fiches insérées, ` +
+      `${doneKnown}/${connues.length} fiches existantes mises à jour sur les seules colonnes du dataset ` +
+      `(titres traduits, synonymes, score, statut, jaquette et relations laissés intacts).`,
+  );
   return rows;
 }
 

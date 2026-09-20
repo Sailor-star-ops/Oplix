@@ -112,6 +112,24 @@ function momentum(row, prev) {
   return m;
 }
 
+/* ─── Retention des releves ─────────────────────────────────────────── */
+
+// 38 000 releves deposes chaque jour, soit ~1,15 million de lignes par mois,
+// pour une fenetre de comparaison qui n'en utilise que 10 jours. Sans purge,
+// le demi-Go de l'offre gratuite Supabase y passe en quelques mois.
+const KEEP_DAYS = 45;
+
+async function purgeOldSnapshots(mediaType) {
+  const limite = new Date(Date.now() - KEEP_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const { error, count } = await supabaseAdmin
+    .from("catalog_trend_snapshot")
+    .delete({ count: "exact" })
+    .eq("media_type", mediaType)
+    .lt("captured_on", limite);
+  if (error) console.error(`  purge des releves : ${error.message}`);
+  else console.log(`${count ?? 0} releves de plus de ${KEEP_DAYS} jours supprimes.`);
+}
+
 /* ─── Traitement d'une table ────────────────────────────────────────── */
 
 async function processTable(table, mediaType) {
@@ -179,6 +197,8 @@ async function processTable(table, mediaType) {
     }
     console.log(`${written} relevés déposés pour aujourd'hui.`);
   }
+
+  await purgeOldSnapshots(mediaType);
 
   const top = [...updates].sort((a, b) => b.trending_score - a.trending_score).slice(0, 5);
   const byId = new Map(rows.map((r) => [r.id, r]));

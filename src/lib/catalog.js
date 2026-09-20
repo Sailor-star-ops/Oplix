@@ -292,11 +292,33 @@ function orderByPopularity(q) {
     .order("popularity", { ascending: true, nullsFirst: false });
 }
 
-export async function fetchTrending({ page = 1, perPage = 50 } = {}) {
+/* --- Contenu adulte --------------------------------------------------
+   Le filtre ne testait que `nsfw_level`, que MyAnimeList ne renseigne jamais
+   a "black" : verifie le 2026-09-20 sur les 30 561 fiches enrichies, zero.
+   1 630 hentai passaient donc dans la recherche, l'accueil et la page saison.
+
+   Deux signaux fiables a la place :
+     - la classification d'age MyAnimeList, "rx" = hentai ;
+     - les genres/themes explicites, pour les fiches venues d'ANN ou du
+       dataset qui n'ont aucune classification.
+   Le manga n'a pas de colonne de classification : genres et themes seuls. */
+const ADULT_GENRES = ["Hentai", "Erotica", "erotica", "hentai"];
+const ADULT_TAGS = ["hentai", "erotica"];
+
+function excludeAdult(q, type) {
+  // `neq` seul ecarterait aussi les lignes sans classification (NULL n'est
+  // jamais different de quoi que ce soit en SQL) : d'ou le `or`.
+  if (type === "ANIME") q = q.or("age_rating.is.null,age_rating.neq.rx");
+  return q
+    .not("genres", "ov", `{${ADULT_GENRES.join(",")}}`)
+    .not("tags", "ov", `{${ADULT_TAGS.join(",")}}`);
+}
+
+export async function fetchTrending({ page = 1, perPage = 50, isAdult = false } = {}) {
+  let base = supabase.from("catalog_anime").select("*");
+  if (!isAdult) base = excludeAdult(base, "ANIME");
   const { data, error } = await orderByPopularity(
-    supabase
-      .from("catalog_anime")
-      .select("*")
+    base
       // trending_score traduit une VARIATION de popularité entre deux
       // synchronisations (voir scripts/compute-trending.mjs) : c'est ce qui
       // fait qu'une tendance bouge au lieu d'être un palmarès figé.
@@ -306,10 +328,10 @@ export async function fetchTrending({ page = 1, perPage = 50 } = {}) {
   return mapRows(data || [], "ANIME");
 }
 
-export async function fetchSeasonal({ season, year, page = 1, perPage = 50 } = {}) {
-  const { data, error } = await orderByPopularity(
-    supabase.from("catalog_anime").select("*").eq("season", season).eq("season_year", year),
-  ).range((page - 1) * perPage, page * perPage - 1);
+export async function fetchSeasonal({ season, year, page = 1, perPage = 50, isAdult = false } = {}) {
+  let q = supabase.from("catalog_anime").select("*").eq("season", season).eq("season_year", year);
+  if (!isAdult) q = excludeAdult(q, "ANIME");
+  const { data, error } = await orderByPopularity(q).range((page - 1) * perPage, page * perPage - 1);
   if (error) throw error;
   return mapRows(data || [], "ANIME");
 }
@@ -359,7 +381,7 @@ export async function searchMedia({
   if (season) q = q.eq("season", season);
   if (seasonYear) q = q.eq("season_year", seasonYear);
   if (year) q = q.gte("start_date", `${year}-01-01`).lte("start_date", `${year}-12-31`);
-  if (type === "ANIME" && isAdult === false) q = q.or("nsfw_level.is.null,nsfw_level.neq.black");
+  if (isAdult === false) q = excludeAdult(q, type);
 
   // Depuis la migration v3, catalog_manga porte les mêmes colonnes de
   // statistiques que catalog_anime : plus besoin de restreindre le tri par type.
@@ -377,12 +399,14 @@ export async function searchMedia({
    Pas de calendrier épisode-par-épisode exact disponible sans AniList :
    on renvoie les animes en cours de diffusion avec leur créneau hebdo
    approximatif, filtré côté composant sur la semaine affichée. */
-export async function fetchAiringAnime() {
-  const { data, error } = await supabase
+export async function fetchAiringAnime({ isAdult = false } = {}) {
+  let q = supabase
     .from("catalog_anime")
     .select("*")
     .eq("status", "RELEASING")
     .not("broadcast_day", "is", null);
+  if (!isAdult) q = excludeAdult(q, "ANIME");
+  const { data, error } = await q;
   if (error) throw error;
   return mapRows(data || [], "ANIME");
 }

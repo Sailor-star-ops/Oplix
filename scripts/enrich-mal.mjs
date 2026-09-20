@@ -44,8 +44,47 @@ const deadline = Number.isFinite(MINUTES) ? Date.now() + MINUTES * 60_000 : Infi
 const ANIME_FIELDS = [
   "synopsis", "genres", "rating", "source", "broadcast", "start_date", "end_date",
   "related_anime", "nsfw", "mean", "popularity", "rank", "num_list_users",
-  "alternative_titles",
+  "alternative_titles", "status", "num_episodes",
 ].join(",");
+
+// Le statut et le nombre d'épisodes ne venaient que d'anime-offline-database,
+// figé depuis le 2026-07-04 : des séries terminées restaient « en cours » et
+// des séries diffusées restaient « à venir ». MyAnimeList, lui, est à jour.
+const ANIME_STATUS_MAP = {
+  currently_airing: "RELEASING",
+  finished_airing: "FINISHED",
+  not_yet_aired: "NOT_YET_RELEASED",
+};
+
+// Une fiche en cours de diffusion (ou à venir) change de statut, de créneau et
+// de nombre d'épisodes en permanence : on la repasse régulièrement, au lieu de
+// la considérer comme réglée pour toujours. Le plafond garde le job court —
+// les minutes GitHub Actions ne sont pas illimitées.
+const REFRESH_AFTER_DAYS = 7;
+const REFRESH_MAX = { catalog_anime: 400, catalog_manga: 200 };
+
+// Reparation ponctuelle. Jusqu'au 2026-09-20, la table de correspondance des
+// oeuvres liees etait plafonnee a 1000 lignes : 29 668 fiches ont ete ecrites
+// avec une liste de relations vide, et rien ne les reprenait (elles comptent
+// comme deja synchronisees). On les repasse par lots, les plus consultees
+// d'abord. Chaque fiche traitee ressort du lot (son mal_synced_at devient
+// recent), donc la reparation se termine d'elle-meme et ne coute plus rien.
+const RELATIONS_BUG_UNTIL = "2026-09-20T09:00:00Z";
+const REPAIR_MAX = 1000;
+
+async function repairRows(cols) {
+  const { data, error } = await supabaseAdmin
+    .from("catalog_anime")
+    .select(cols)
+    .not("mal_id", "is", null)
+    .lt("mal_synced_at", RELATIONS_BUG_UNTIL)
+    .eq("relations", "[]")
+    .order("popularity", { ascending: true, nullsFirst: false })
+    .order("id", { ascending: true })
+    .limit(REPAIR_MAX);
+  if (error) throw new Error(`catalog_anime (reparation des relations) : ${error.message}`);
+  return data || [];
+}
 
 const MANGA_FIELDS = [
   "synopsis", "genres", "main_picture", "status", "num_volumes", "num_chapters",
@@ -135,27 +174,74 @@ async function pendingRows(table, cols) {
   return rows.slice(0, LIMIT);
 }
 
+// Fiches déjà enrichies mais susceptibles d'avoir changé : celles qui sont en
+// cours de diffusion/publication ou pas encore sorties. Les plus anciennement
+// synchronisées d'abord, pour que tout le lot finisse par tourner.
+async function staleRows(table, cols) {
+  const cutoff = new Date(Date.now() - REFRESH_AFTER_DAYS * 86_400_000).toISOString();
+  const { data, error } = await supabaseAdmin
+    .from(table)
+    .select(cols)
+    .not("mal_id", "is", null)
+    .in("status", ["RELEASING", "NOT_YET_RELEASED"])
+    .lt("mal_synced_at", cutoff)
+    .order("mal_synced_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(REFRESH_MAX[table]);
+  if (error) throw new Error(`${table} (rafraîchissement) : ${error.message}`);
+  return data || [];
+}
+
+// Supabase plafonne une requête à 1000 lignes : sans pagination, la table de
+// correspondance des œuvres liées ne couvrait que 1000 des 30 561 anime, et
+// presque toutes les relations étaient jetées à l'écriture — définitivement,
+// puisque la fiche était ensuite marquée comme synchronisée.
+async function malIdMap() {
+  const map = new Map();
+  const page = 1000;
+  for (let from = 0; ; from += page) {
+    const { data, error } = await supabaseAdmin
+      .from("catalog_anime")
+      .select("id, mal_id")
+      .not("mal_id", "is", null)
+      .order("id", { ascending: true })
+      .range(from, from + page - 1);
+    if (error) throw new Error(`Table de correspondance MAL : ${error.message}`);
+    for (const r of data) map.set(r.mal_id, r.id);
+    if (data.length < page) break;
+  }
+  return map;
+}
+
 /* ─── Anime ─────────────────────────────────────────────────────────── */
 
 async function enrichAnime() {
-  const rows = await pendingRows(
-    "catalog_anime",
-    "id, mal_id, synopsis, genres, start_date, end_date, title_english, title_native, synonyms, score",
-  );
+  const cols =
+    "id, mal_id, synopsis, genres, start_date, end_date, title_english, title_native, synonyms, score, status, episodes";
+  const pending = await pendingRows("catalog_anime", cols);
+  const stale = pending.length ? [] : await staleRows("catalog_anime", cols);
+  const repair = pending.length ? [] : await repairRows(cols);
+  const rows = [...pending, ...stale, ...repair];
   const { count: total } = await supabaseAdmin
     .from("catalog_anime")
     .select("id", { count: "exact", head: true })
     .not("mal_id", "is", null);
-  console.log(`\n═══ Anime ═══\n${rows.length} fiches restantes sur ${total} à enrichir.`);
+  console.log(
+    `\n═══ Anime ═══\n${pending.length} fiches jamais enrichies sur ${total}` +
+      (stale.length ? `, plus ${stale.length} fiches en cours/a venir a rafraichir` : "") +
+      (repair.length ? `, plus ${repair.length} fiches dont les oeuvres liees sont a reparer` : "") +
+      ".",
+  );
   if (!rows.length) return 0;
 
   // Correspondance ID MyAnimeList -> ID catalogue, pour que les œuvres liées
   // pointent vers des lignes réellement présentes en base.
-  const { data: idMap } = await supabaseAdmin.from("catalog_anime").select("id, mal_id").not("mal_id", "is", null);
-  const malToId = new Map((idMap || []).map((r) => [r.mal_id, r.id]));
+  const malToId = await malIdMap();
+  console.log(`${malToId.size} correspondances MAL -> catalogue chargées.`);
 
   let ok = 0;
   let gone = 0;
+  let erreurs = 0;
   for (const [i, row] of rows.entries()) {
     if (Date.now() > deadline) {
       console.log("\nDurée impartie atteinte — arrêt propre.");
@@ -168,7 +254,7 @@ async function enrichAnime() {
         await supabaseAdmin.from("catalog_anime").update({ mal_synced_at: new Date().toISOString() }).eq("id", row.id);
       } else {
         const alt = d.alternative_titles || {};
-        await supabaseAdmin
+        const { error } = await supabaseAdmin
           .from("catalog_anime")
           .update({
             synopsis: keep(row.synopsis, d.synopsis),
@@ -180,6 +266,10 @@ async function enrichAnime() {
             end_date: keep(row.end_date, normalizeDate(d.end_date)),
             broadcast_day: d.broadcast?.day_of_the_week || null,
             broadcast_time: d.broadcast?.start_time || null,
+            // Statut et nombre d'épisodes : MyAnimeList est la seule source à
+            // jour depuis que le dataset amont est archivé.
+            status: ANIME_STATUS_MAP[d.status] || row.status || null,
+            episodes: d.num_episodes || row.episodes || null,
             score: d.mean ?? row.score ?? null,
             popularity: rankOrNull(d.popularity),
             members: d.num_list_users ?? null,
@@ -193,10 +283,14 @@ async function enrichAnime() {
             mal_synced_at: new Date().toISOString(),
           })
           .eq("id", row.id);
+        // Une erreur d'ecriture ignoree faisait compter comme reussie une fiche
+        // qui n'a jamais ete ecrite en base.
+        if (error) throw new Error(`ecriture Supabase : ${error.message}`);
         ok++;
       }
     } catch (err) {
       if (err.message.startsWith("FATAL")) throw err;
+      erreurs++;
       console.error(`\n  MAL anime#${row.mal_id} : ${err.message}`);
     }
     if ((i + 1) % 10 === 0 || i === rows.length - 1) {
@@ -205,16 +299,18 @@ async function enrichAnime() {
     await sleep(RATE_LIMIT_MS);
   }
   console.log("");
+  if (erreurs) console.warn(`  ${erreurs} fiche(s) en erreur : ni enrichies, ni marquees comme faites.`);
   return ok;
 }
 
 /* ─── Manga ─────────────────────────────────────────────────────────── */
 
 async function enrichManga() {
-  const rows = await pendingRows(
-    "catalog_manga",
-    "id, mal_id, synopsis, genres, cover_url, status, volumes, chapters, start_date, title_english, title_native, authors",
-  );
+  const cols =
+    "id, mal_id, synopsis, genres, cover_url, status, volumes, chapters, start_date, title_english, title_native, authors";
+  const pending = await pendingRows("catalog_manga", cols);
+  const stale = pending.length ? [] : await staleRows("catalog_manga", cols);
+  const rows = [...pending, ...stale];
   const { count: total } = await supabaseAdmin
     .from("catalog_manga")
     .select("id", { count: "exact", head: true })
@@ -224,6 +320,7 @@ async function enrichManga() {
 
   let ok = 0;
   let gone = 0;
+  let erreurs = 0;
   for (const [i, row] of rows.entries()) {
     if (Date.now() > deadline) {
       console.log("\nDurée impartie atteinte — arrêt propre.");
@@ -239,13 +336,13 @@ async function enrichManga() {
         const authors = (d.authors || [])
           .map((a) => [a.node?.first_name, a.node?.last_name].filter(Boolean).join(" ").trim())
           .filter(Boolean);
-        await supabaseAdmin
+        const { error } = await supabaseAdmin
           .from("catalog_manga")
           .update({
             synopsis: keep(row.synopsis, d.synopsis),
             genres: isEmpty(row.genres) ? (d.genres || []).map((g) => g.name) : row.genres,
             cover_url: keep(row.cover_url, d.main_picture?.large || d.main_picture?.medium),
-            status: keep(row.status, MANGA_STATUS_MAP[d.status]),
+            status: MANGA_STATUS_MAP[d.status] || row.status || null,
             volumes: keep(row.volumes, d.num_volumes),
             chapters: keep(row.chapters, d.num_chapters),
             start_date: keep(row.start_date, normalizeDate(d.start_date)),
@@ -260,10 +357,14 @@ async function enrichManga() {
             mal_synced_at: new Date().toISOString(),
           })
           .eq("id", row.id);
+        // Une erreur d'ecriture ignoree faisait compter comme reussie une fiche
+        // qui n'a jamais ete ecrite en base.
+        if (error) throw new Error(`ecriture Supabase : ${error.message}`);
         ok++;
       }
     } catch (err) {
       if (err.message.startsWith("FATAL")) throw err;
+      erreurs++;
       console.error(`\n  MAL manga#${row.mal_id} : ${err.message}`);
     }
     if ((i + 1) % 10 === 0 || i === rows.length - 1) {
@@ -272,6 +373,7 @@ async function enrichManga() {
     await sleep(RATE_LIMIT_MS);
   }
   console.log("");
+  if (erreurs) console.warn(`  ${erreurs} fiche(s) en erreur : ni enrichies, ni marquees comme faites.`);
   return ok;
 }
 
