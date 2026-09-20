@@ -38,15 +38,21 @@ const LIST_COLS_MANGA =
 
 const colsDeListe = (type) => (type === "MANGA" ? LIST_COLS_MANGA : LIST_COLS);
 
-const WEEKDAYS = {
-  Sundays: 0,
-  Mondays: 1,
-  Tuesdays: 2,
-  Wednesdays: 3,
-  Thursdays: 4,
-  Fridays: 5,
-  Saturdays: 6,
-};
+/* Le jour de diffusion vient de MyAnimeList au singulier et en minuscules
+   ("friday"), alors que ce code attendait la forme d'AniList au pluriel et
+   capitalisée ("Fridays"). Résultat : PAS UNE SEULE correspondance ne
+   marchait — calendrier vide, aucun compte à rebours, pastille « À suivre »
+   muette. On normalise donc avant de chercher, et on accepte les deux
+   écritures. La valeur "other" existe aussi côté MyAnimeList : elle ne
+   désigne aucun jour, et doit rester sans correspondance. */
+const JOURS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+function indexJour(valeur) {
+  if (!valeur) return undefined;
+  const nettoye = String(valeur).trim().toLowerCase().replace(/s$/, "");
+  const i = JOURS.indexOf(nettoye);
+  return i === -1 ? undefined : i;
+}
 
 /* Approximation du prochain épisode : MAL ne donne qu'un créneau hebdo
    récurrent (jour + heure), pas un countdown exact épisode par épisode
@@ -54,7 +60,7 @@ const WEEKDAYS = {
    à partir de la date de début, pas garanti exact. */
 function computeNextAiring(row) {
   if (row.status !== "RELEASING" || !row.broadcast_day) return null;
-  const targetDow = WEEKDAYS[row.broadcast_day];
+  const targetDow = indexJour(row.broadcast_day);
   if (targetDow === undefined) return null;
 
   const [h, m] = (row.broadcast_time || "00:00").split(":").map(Number);
@@ -226,7 +232,7 @@ export function computeAiringOccurrence(media, referenceDate) {
     return { airingAt, episode: 1, premiere: true };
   }
   if (!media._broadcastDay) return null;
-  const targetDow = WEEKDAYS[media._broadcastDay];
+  const targetDow = indexJour(media._broadcastDay);
   if (targetDow === undefined) return null;
 
   const [h, m] = (media._broadcastTime || "00:00").split(":").map(Number);
