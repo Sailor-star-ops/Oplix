@@ -33,3 +33,8 @@ dist-ssr
 # public, elles restent sur le disque et hors de l'historique.
 JOURNAL.md
 ROADMAP.md
+
+# Configuration locale de l'outillage : elle contient un chemin Windows
+# nominatif et des crochets qui lisent des fichiers hors du dépôt.
+.claude/settings.json
+.claude/settings.local.json
