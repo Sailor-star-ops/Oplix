@@ -66,15 +66,15 @@ drop table if exists calendar;
 -- lors du passage aux follows (supabase_social.sql, 2026-08-30). Les follows
 -- tournent depuis trois semaines et portent 6 lignes.
 --
--- Son contenu intégral, recopié avant suppression pour qu'aucune information
+-- Son contenu, recopié avant suppression pour qu'aucune information
 -- ne parte sans trace. Les deux lignes « accepted » existent déjà dans
 -- `follows` ; la demande « pending » n'a jamais été migrée, le suivi
 -- asymétrique n'ayant pas de notion de demande en attente.
 --
 --   id                                    requester_id                          addressee_id                          status     created_at
---   identifiant-retire  identifiant-retire  identifiant-retire  pending    2026-08-29 22:00:03
---   identifiant-retire  identifiant-retire  identifiant-retire  accepted   2026-08-29 21:59:52
---   identifiant-retire  identifiant-retire  identifiant-retire  accepted   2026-08-30 21:12:03
+--   <identifiant de compte retiré>  <identifiant de compte retiré>  <identifiant de compte retiré>  pending    2026-08-29 22:00:03
+--   <identifiant de compte retiré>  <identifiant de compte retiré>  <identifiant de compte retiré>  accepted   2026-08-29 21:59:52
+--   <identifiant de compte retiré>  <identifiant de compte retiré>  <identifiant de compte retiré>  accepted   2026-08-30 21:12:03
 drop table if exists friendships_old;
 
 -- ─── 4. Vérification ─────────────────────────────────────────────────

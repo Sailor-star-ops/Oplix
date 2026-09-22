@@ -27,3 +27,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Notes de travail personnelles : elles contiennent du vécu (santé, scolarité,
+# machine) et des points de sécurité en cours. Le dépôt étant destiné à devenir
+# public, elles restent sur le disque et hors de l'historique.
+JOURNAL.md
+ROADMAP.md
