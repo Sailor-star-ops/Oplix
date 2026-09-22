@@ -76,7 +76,11 @@ jobs:
       always() &&
       (github.event.inputs.target == '' || github.event.inputs.target == 'both' || github.event.inputs.target == 'ann')
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Depuis que ce script cree aussi les fiches anime absentes, il parcourt
+    # les 12 800 anime ET les 24 000 manga de l'encyclopedie ANN, a une requete
+    # par seconde imposee par leurs conditions. Le passage du 2026-09-21 a ete
+    # coupe net a 45 minutes, avant la fin du manga.
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
 

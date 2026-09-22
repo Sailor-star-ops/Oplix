@@ -100,6 +100,11 @@ async function actuRows(table, cols) {
 // recent), donc la reparation se termine d'elle-meme et ne coute plus rien.
 const RELATIONS_BUG_UNTIL = "2026-09-20T09:00:00Z";
 const REPAIR_MAX = 1000;
+// La reparation est bornee aux fiches reellement consultees : reprendre les
+// 29 500 fiches abimees coutait 640 minutes de quota GitHub Actions, pour des
+// OAV que personne n'ouvre. Au-dessus de 20 000 membres, il en reste environ
+// 4 800 — cinq nuits, et ce sont celles qui comptent.
+const REPAIR_MEMBRES_MIN = 20000;
 
 async function repairRows(cols) {
   const { data, error } = await supabaseAdmin
@@ -107,6 +112,7 @@ async function repairRows(cols) {
     .select(cols)
     .not("mal_id", "is", null)
     .lt("mal_synced_at", RELATIONS_BUG_UNTIL)
+    .gte("members", REPAIR_MEMBRES_MIN)
     .eq("relations", "[]")
     .order("popularity", { ascending: true, nullsFirst: false })
     .order("id", { ascending: true })
@@ -254,8 +260,12 @@ async function enrichAnime() {
   // La fenêtre d'actualité passe avant tout le reste : c'est elle qui tient le
   // calendrier à jour.
   const actu = await actuRows("catalog_anime", cols);
-  const stale = pending.length ? [] : await staleRows("catalog_anime", cols);
-  const repair = pending.length ? [] : await repairRows(cols);
+  // Ces deux lots ne sont plus conditionnes a une file d'attente vide : la
+  // creation de fiches par sync-mal-season laisse presque toujours quelques
+  // nouvelles a enrichir, si bien que la reparation n'est jamais partie. Le
+  // vrai garde-fou, c'est la duree impartie, qui arrete la boucle proprement.
+  const stale = await staleRows("catalog_anime", cols);
+  const repair = await repairRows(cols);
   const vus = new Set();
   const rows = [...actu, ...pending, ...stale, ...repair].filter((r) => {
     if (vus.has(r.id)) return false;
