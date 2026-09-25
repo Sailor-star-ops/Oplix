@@ -91,6 +91,12 @@ const quality = (row) => (row.score > 0 ? (row.score - 6.5) * 0.45 : 0);
 
 /* ─── Composante 2 : mouvement réel entre deux relevés ──────────────── */
 
+// Socle d'audience en dessous duquel une variation relative n'est plus un
+// signal. Même valeur que TRENDING_MEMBERS_MIN dans src/lib/catalog.js, qui
+// protège la page d'accueil en lecture : les deux répondent au même
+// problème, à deux endroits différents de la chaîne.
+const MOMENTUM_MEMBERS_MIN = 2000;
+
 // Progression relative, bornée : une œuvre qui passe de la 1200e à la 800e
 // place gagne autant qu'une qui passe de la 30e à la 20e. C'est l'ampleur
 // relative du mouvement qui fait la tendance, pas la position absolue.
@@ -102,6 +108,15 @@ function momentum(row, prev) {
   // par le rang du jour passerait pour une progression — des milliers de
   // fausses « tendances » la nuit suivante.
   if (!prev || !(prev.members > 0) || !(row.members > 0)) return null;
+  // Sous un socle d'audience, la progression relative ne mesure plus rien :
+  // 300 curieux de plus sur une fiche à 500 membres font +60 %, quand 50 000
+  // nouveaux spectateurs sur une grosse série ne font que +2 %. Relevé le
+  // 2026-09-25 en page d'accueil : un titre à 67 membres en tête du
+  // carrousel, un autre à 20 membres en huitième position. Ces fiches
+  // gardent leur score de base (notoriété + fraîcheur + qualité) — elles ne
+  // disparaissent pas, elles cessent seulement de doubler tout le monde sur
+  // un bruit statistique.
+  if (prev.members < MOMENTUM_MEMBERS_MIN) return null;
   let m = 0;
   if (prev.popularity > 0 && row.popularity > 0) {
     m += Math.max(-1, Math.min(1, (prev.popularity - row.popularity) / prev.popularity)) * 6;

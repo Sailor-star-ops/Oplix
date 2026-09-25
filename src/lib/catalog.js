@@ -154,8 +154,40 @@ function isAdultRow(row) {
    entier le jour où ces colonnes devront être vidées.
    `ann_*` vaut `undefined` quand la requête ne l'a pas demandé (voir
    ANN_COLS) : le `||` retombe alors naturellement sur la colonne d'origine. */
-const jaquette = (row) => row.ann_cover_url || row.cover_url || null;
+const jaquette = (row) => row.ann_cover_url || row.cover_url || placeholderCover(row);
+const vignette = (row) => row.ann_cover_url || row.thumbnail_url || row.cover_url || placeholderCover(row);
 const resume = (row) => row.ann_synopsis || row.synopsis || null;
+
+/* 919 fiches (2,6 % du catalogue) n'ont de visuel chez aucune source. Elles
+   servaient jusqu'ici une URL vide, donc l'icône d'image brisée du
+   navigateur — y compris en page d'accueil. Même parti pris que pour les
+   portraits de personnages, qu'ANN ne fournit pas : on montre les initiales
+   du titre plutôt qu'un carré vide.
+
+   Généré en data URI : pas de requête réseau, pas de fichier à héberger, et
+   surtout rien à re-télécharger si la fiche finit par recevoir une vraie
+   jaquette. Couleurs fixes — c'est une image, elle ne peut pas suivre les
+   tokens du thème, et une affiche reste sombre dans les deux thèmes. */
+function placeholderCover(row) {
+  const titre = row.title_romaji || row.title_english || row.title_native || "";
+  const initiales =
+    titre
+      .split(/[\s:·—–-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((mot) => mot[0])
+      .join("")
+      .replace(/[^\p{L}\p{N}]/gu, "")
+      .toUpperCase() || "?";
+
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 225 318">` +
+    `<rect width="225" height="318" fill="#131316"/>` +
+    `<text x="112.5" y="159" fill="#ff5500" font-family="Space Grotesk,Outfit,sans-serif" ` +
+    `font-size="78" font-weight="800" text-anchor="middle" dominant-baseline="central">${initiales}</text>` +
+    `</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
 
 /* La note, elle, reste celle de MyAnimeList tant qu'elle existe : elle
    s'appuie sur des centaines de milliers de votes, contre quelques dizaines
@@ -200,7 +232,7 @@ function toMediaShape(row, mediaType) {
     coverImage: {
       extraLarge: jaquette(row),
       large: jaquette(row),
-      medium: row.ann_cover_url || row.thumbnail_url || row.cover_url,
+      medium: vignette(row),
       color: null,
     },
     bannerImage: null, // généré côté UI depuis coverImage (voir src/lib/banner.js)
@@ -497,8 +529,24 @@ function excludeAdult(q, type) {
     .not("tags", "ov", `{${ADULT_TAGS.join(",")}}`);
 }
 
+/* Plancher de notoriété de la page d'accueil.
+
+   Le score de tendance intègre un MOUVEMENT RELATIF (voir
+   scripts/compute-trending.mjs) : sur une fiche à 500 membres, 300 curieux
+   de plus font +60 %, quand 50 000 nouveaux spectateurs sur une grosse
+   série ne font que +2 %. Les quasi-inconnues remontaient donc en tête —
+   relevé le 2026-09-25 : un titre à 67 membres en première position, un
+   autre à 20 membres en huitième.
+
+   Le correctif de fond est dans le script (le mouvement n'est plus calculé
+   sous ce même seuil), mais il ne vaut que pour les scores recalculés la
+   nuit suivante. Ce plancher-ci protège l'accueil tout de suite, et le
+   protégera encore si la formule redevient bruyante. 12 867 fiches restent
+   éligibles — largement de quoi remplir un carrousel. */
+export const TRENDING_MEMBERS_MIN = 2000;
+
 export async function fetchTrending({ page = 1, perPage = 50, isAdult = false } = {}) {
-  let base = supabase.from("catalog_anime").select(LIST_COLS);
+  let base = supabase.from("catalog_anime").select(LIST_COLS).gte("members", TRENDING_MEMBERS_MIN);
   if (!isAdult) base = excludeAdult(base, "ANIME");
   const { data, error } = await orderByPopularity(
     base
