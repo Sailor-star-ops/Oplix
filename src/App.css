@@ -61,6 +61,12 @@
   /* ─── Surfaces (du fond de page vers les éléments en relief) ─── */
   --bg-app: #050505;
   --bg-app-alt: #0a0a0c;
+  /* Même teinte que --bg-app-alt, mais décomposée pour les surfaces
+     semi-transparentes posées sur un fond flouté (topbar, en-tête de
+     collection publique) : rgba(var(--bg-app-alt-rgb), alpha). Sans elle,
+     ces barres gardaient un fond sombre codé en dur et restaient noires
+     en thème clair. */
+  --bg-app-alt-rgb: 10, 10, 12;
   --bg-surface: #0d0d0d;
   --bg-surface-alt: #080808;
   --bg-surface-2: #131316;
@@ -87,6 +93,7 @@
 
   --bg-app: #f4f4f6;
   --bg-app-alt: #eceef1;
+  --bg-app-alt-rgb: 236, 238, 241;
   --bg-surface: #ffffff;
   --bg-surface-alt: #f8f8fa;
   --bg-surface-2: #f0f0f3;
@@ -717,7 +724,11 @@
   font-size: 1.3rem;
   font-weight: 800;
   letter-spacing: -.5px;
-  color: #f4f4f5;
+  /* Titre posé sur la surface de l'app, pas sur la bannière du calendrier
+     (celle-ci, c'est .cal4-hero__*, qui garde volontairement du blanc fixe) :
+     il doit donc s'inverser avec le thème. Il était blanc en dur, donc
+     blanc sur blanc en thème clair. */
+  color: var(--text-1);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1420,12 +1431,16 @@
   width: 34px; height: 34px; border-radius: 50%;
   background: rgba(0,0,0,.65);
   border: 1px solid rgba(var(--overlay-rgb),.1);
-  color: var(--text-3); cursor: pointer; font-size: .8rem;
+  /* Pastille posée sur la bannière de la fiche, donc sur une image : son
+     fond reste sombre dans les deux thèmes, et la croix doit donc rester
+     blanche. Avec --text-3 elle virait au gris foncé en thème clair,
+     invisible sur le rond noir. */
+  color: var(--text-on-accent); cursor: pointer; font-size: .8rem;
   display: flex; align-items: center; justify-content: center;
   transition: background .2s, color .2s;
   backdrop-filter: blur(8px);
 }
-.mi__close:hover { background: rgba(239,68,68,.3); color: var(--text-1); }
+.mi__close:hover { background: rgba(var(--danger-rgb),.3); color: var(--text-on-accent); }
 
 /* ══════════════════════════════════════════════════════════
    HERO — hauteur fixe, ne scroll jamais
@@ -1714,7 +1729,11 @@
   display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 7px;
 }
 .mi__stat {
-  background: #0c0c0c; border: 1px solid rgba(var(--overlay-rgb),.05);
+  /* Un cran au-dessus de --bg-surface-alt, qui est le fond de la modale :
+     c'est ce décalage qui donne le relief des tuiles, dans les deux thèmes.
+     Était codé en dur en #0c0c0c, donc noir sur noir en thème clair — les
+     huit valeurs (score, membres, classement…) étaient illisibles. */
+  background: var(--bg-surface); border: 1px solid rgba(var(--overlay-rgb),.05);
   border-radius: 8px; padding: 10px 10px 9px;
   display: flex; flex-direction: column; gap: 3px;
   transition: border-color .15s;
@@ -2115,7 +2134,9 @@
   justify-content: center;
   opacity: 0;
   transition: opacity .2s;
-  color: var(--text-1);
+  /* Voile sombre posé sur la jaquette au survol : la loupe reste blanche
+     quel que soit le thème, comme tout ce qui se pose sur une image. */
+  color: var(--text-on-accent);
   font-size: 1.3rem;
 }
 .mi__poster-wrap:hover .mi__poster-zoom-btn {
@@ -3005,7 +3026,7 @@
 .pc-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 20px 32px; position: sticky; top: 0; z-index: 5;
-  background: rgba(10,10,12,.85); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(var(--overlay-rgb),.06);
+  background: rgba(var(--bg-app-alt-rgb),.85); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(var(--overlay-rgb),.06);
 }
 .pc-header .brand { display: flex; align-items: center; gap: 8px; font-family: 'Space Grotesk', sans-serif; font-weight: 800; font-size: 1.1rem; color: var(--accent); }
 .pc-hero { display: flex; gap: 32px; align-items: flex-end; padding: 60px 32px 40px; }
@@ -3368,7 +3389,7 @@
 .tb {
   display: flex; align-items: center; justify-content: flex-start; gap: 20px;
   padding: 16px 32px; border-bottom: 1px solid rgba(var(--overlay-rgb),.06);
-  background: rgba(10,10,12,.7); backdrop-filter: blur(12px);
+  background: rgba(var(--bg-app-alt-rgb),.7); backdrop-filter: blur(12px);
   position: sticky; top: 0; z-index: 50;
 }
 

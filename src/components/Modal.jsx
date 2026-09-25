@@ -21,20 +21,22 @@ const voiceLangLabel = l => ({
   PT: 'PT', KO: 'KO', TL: 'TL', RU: 'RU',
 }[l] || l)
 
-/* Génère un fond très sombre teinté depuis n'importe quelle couleur hex.
-   mix = 0..1 (proportion de la couleur, le reste est #080808)
-   Résultat toujours sombre et cohérent, jamais criard. */
+/* Génère un fond légèrement teinté depuis n'importe quelle couleur hex.
+   mix = 0..1 (opacité de la teinte posée sur la surface courante).
+
+   Cette fonction mélangeait autrefois la couleur avec un #080808 codé en
+   dur, donc renvoyait toujours un fond opaque et sombre : en thème clair,
+   la pastille « prochain épisode » restait noire et son texte, lui, passait
+   au sombre — illisible. Une teinte translucide donne le même rendu sur le
+   fond sombre de la modale (#080808 : le calcul composite est identique au
+   précédent) tout en suivant le thème clair. */
 function subtleBg(hex, mix = 0.10) {
-  if (!hex || hex[0] !== '#') return 'rgba(255,255,255,.04)'
+  if (!hex || hex[0] !== '#') return 'rgba(var(--overlay-rgb),.04)'
   const h = hex.length === 4
     ? hex.slice(1).split('').map(c => parseInt(c + c, 16))
     : [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)]
-  if (h.some(isNaN)) return 'rgba(255,255,255,.04)'
-  const base = 8 // #080808
-  const r = Math.round(base + (h[0] - base) * mix)
-  const g = Math.round(base + (h[1] - base) * mix)
-  const b = Math.round(base + (h[2] - base) * mix)
-  return `rgb(${r},${g},${b})`
+  if (h.some(isNaN)) return 'rgba(var(--overlay-rgb),.04)'
+  return `rgba(${h[0]},${h[1]},${h[2]},${mix})`
 }
 
 function SectionTitle({ icon, children }) {
