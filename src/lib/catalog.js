@@ -25,16 +25,29 @@ const TABLE = { ANIME: "catalog_anime", MANGA: "catalog_manga" };
    de la lenteur, la requête dépassait le délai maximal et revenait en erreur
    500 dans le navigateur. La fiche détaillée, elle, recharge la ligne
    complète (voir handleOpenModal dans App.jsx). */
+
+/* Colonnes venues d'Anime News Network, seule source du catalogue qui
+   n'impose aucune autorisation écrite pour un usage commercial. Elles
+   doublent volontairement des colonnes que MyAnimeList alimente aussi
+   (jaquette, note), pour que l'app puisse s'en passer sans rien perdre le
+   jour où MyAnimeList coupe l'accès — voir supabase_catalog_v4.sql.
+   `ann_synopsis` reste hors de cette liste : c'est le seul champ lourd des
+   six, et seule la fiche détaillée (qui recharge la ligne entière) s'en
+   sert vraiment. */
+const ANN_COLS = "ann_cover_url, ann_rating, ann_rating_votes, ann_objectionable";
+
 const LIST_COLS =
   "id, mal_id, ann_id, title_romaji, title_english, title_native, synonyms, type, status, " +
   "episodes, duration_minutes, season, season_year, start_date, end_date, studios, genres, tags, " +
   "cover_url, thumbnail_url, synopsis, source_type, country_of_origin, age_rating, nsfw_level, " +
-  "score, popularity, members, rank_overall, trending_score, broadcast_day, broadcast_time";
+  "score, popularity, members, rank_overall, trending_score, broadcast_day, broadcast_time, " +
+  ANN_COLS;
 
 const LIST_COLS_MANGA =
   "id, mal_id, ann_id, title_romaji, title_english, title_native, synonyms, status, chapters, volumes, " +
   "authors, publisher, demographic, genres, tags, cover_url, synopsis, start_date, country_of_origin, " +
-  "score, popularity, members, rank_overall, trending_score";
+  "score, popularity, members, rank_overall, trending_score, " +
+  ANN_COLS;
 
 const colsDeListe = (type) => (type === "MANGA" ? LIST_COLS_MANGA : LIST_COLS);
 
@@ -122,13 +135,41 @@ function toCharacterEdges(characters = []) {
   }));
 }
 
-// Classification d'age MyAnimeList ("rx" = hentai) et genres/themes
-// explicites : les deux seuls signaux fiables (voir excludeAdult).
+// Classification d'age MyAnimeList ("rx" = hentai), classification ANN
+// ("AO" = adults only) et genres/themes explicites (voir excludeAdult).
 function isAdultRow(row) {
   if (row.age_rating === "rx") return true;
+  if (String(row.ann_objectionable || "").toUpperCase() === "AO") return true;
   const mots = ["hentai", "erotica"];
   const contient = (liste) => (liste || []).some((v) => mots.includes(String(v).toLowerCase()));
   return contient(row.genres) || contient(row.tags);
+}
+
+/* Jaquette et résumé : la valeur ANN passe devant quand elle existe.
+   Ce n'est pas un détail d'affichage mais le cœur de la sortie de
+   dépendance — 85 % des jaquettes anime sont aujourd'hui des liens vers le
+   CDN MyAnimeList, dont l'accord soumet l'usage commercial à une
+   autorisation écrite. Ce qui n'a pas d'équivalent ANN reste servi par
+   MyAnimeList : l'ordre de préférence suffit à basculer le catalogue
+   entier le jour où ces colonnes devront être vidées.
+   `ann_*` vaut `undefined` quand la requête ne l'a pas demandé (voir
+   ANN_COLS) : le `||` retombe alors naturellement sur la colonne d'origine. */
+const jaquette = (row) => row.ann_cover_url || row.cover_url || null;
+const resume = (row) => row.ann_synopsis || row.synopsis || null;
+
+/* La note, elle, reste celle de MyAnimeList tant qu'elle existe : elle
+   s'appuie sur des centaines de milliers de votes, contre quelques dizaines
+   chez ANN. La note ANN ne prend le relais que sur les fiches sans note
+   MyAnimeList, et seulement au-delà d'un seuil de votes — en dessous, un
+   seul avis extrême déplace la moyenne d'un point entier. */
+const ANN_VOTES_MIN = 20;
+
+function noteAffichee(row) {
+  if (row.score) return Math.round(row.score * 10);
+  if (row.ann_rating && (row.ann_rating_votes || 0) >= ANN_VOTES_MIN) {
+    return Math.round(row.ann_rating * 10);
+  }
+  return null;
 }
 
 function toMediaShape(row, mediaType) {
@@ -145,7 +186,7 @@ function toMediaShape(row, mediaType) {
     type: mediaType,
     format: isAnime ? row.type : "MANGA", // pas de granularité NOVEL/ONE_SHOT côté manga pour l'instant
     status: row.status,
-    description: row.synopsis || null,
+    description: resume(row),
     startDate: splitDate(row.start_date),
     endDate: splitDate(row.end_date),
     season: row.season || null,
@@ -157,17 +198,24 @@ function toMediaShape(row, mediaType) {
     countryOfOrigin: row.country_of_origin || null,
     source: row.source_type || null,
     coverImage: {
-      extraLarge: row.cover_url,
-      large: row.cover_url,
-      medium: row.thumbnail_url || row.cover_url,
+      extraLarge: jaquette(row),
+      large: jaquette(row),
+      medium: row.ann_cover_url || row.thumbnail_url || row.cover_url,
       color: null,
     },
     bannerImage: null, // généré côté UI depuis coverImage (voir src/lib/banner.js)
     genres: row.genres || [],
     synonyms: row.synonyms || [],
     tags: (row.tags || []).map((name) => ({ name, rank: null, category: null, isMediaSpoiler: false })),
-    averageScore: row.score ? Math.round(row.score * 10) : null,
-    meanScore: row.score ? Math.round(row.score * 10) : null,
+    averageScore: noteAffichee(row),
+    meanScore: noteAffichee(row),
+    // Note ANN exposée à part, avec son nombre de votes : c'est une autre
+    // grandeur que la moyenne MyAnimeList (quelques dizaines de votes contre
+    // des centaines de milliers), et les confondre dans un même chiffre
+    // donnerait une fausse impression de solidité. La fiche détaillée peut
+    // les afficher côte à côte, chacune créditée à sa source.
+    annScore: row.ann_rating ? Math.round(row.ann_rating * 10) : null,
+    annScoreVotes: row.ann_rating_votes ?? null,
     // Sémantique AniList : `popularity` = nombre d'utilisateurs suivant l'œuvre.
     // Le rang MyAnimeList est exposé à part, car c'est une autre grandeur —
     // les confondre inversait tous les classements de l'app.
@@ -255,6 +303,9 @@ export function computeAiringOccurrence(media, referenceDate) {
 /* Hydrate relations.edges[].node avec un mini-objet (titre/cover/format/statut)
    pour l'onglet "œuvres liées" du Modal — une requête groupée en plus,
    sur les IDs relation déjà stockés (pas d'appel externe). */
+const REL_COLS_ANIME = "id, ann_id, title_romaji, title_english, type, cover_url, ann_cover_url, status, episodes";
+const REL_COLS_MANGA = "id, ann_id, title_romaji, title_english, cover_url, ann_cover_url, status, chapters";
+
 async function hydrateRelations(mediaList) {
   const idsToFetch = [];
   for (const m of mediaList) {
@@ -264,53 +315,117 @@ async function hydrateRelations(mediaList) {
   }
   if (idsToFetch.length === 0) return mediaList;
 
+  // Deux espaces d'identifiants cohabitent : celui du catalogue (relations
+  // MyAnimeList, déjà rebasées à l'import) et celui d'ANN (ann_related, tel
+  // qu'ANN le publie). Ils se résolvent séparément, en une requête chacun.
   const allIds = [...new Set(idsToFetch.map((e) => e._rawId).filter(Boolean))];
-  if (allIds.length === 0) return mediaList;
+  const allAnnIds = [...new Set(idsToFetch.map((e) => e._rawAnnId).filter(Boolean))];
+  if (allIds.length === 0 && allAnnIds.length === 0) return mediaList;
 
   // Les deux tables : une œuvre liée peut être un manga (adaptation, œuvre
   // d'origine). La requête ne regardait que catalog_anime, donc aucune
   // relation d'un manga ne s'affichait jamais.
-  const [animeRes, mangaRes] = await Promise.all([
-    supabase
-      .from("catalog_anime")
-      .select("id, title_romaji, title_english, type, cover_url, status, episodes")
-      .in("id", allIds),
-    supabase
-      .from("catalog_manga")
-      .select("id, title_romaji, title_english, cover_url, status, chapters")
-      .in("id", allIds),
+  const parId = (table, cols) =>
+    allIds.length ? supabase.from(table).select(cols).in("id", allIds) : Promise.resolve({ data: [] });
+  const parAnnId = (table, cols) =>
+    allAnnIds.length
+      ? supabase.from(table).select(cols).in("ann_id", allAnnIds)
+      : Promise.resolve({ data: [] });
+
+  const [animeRes, mangaRes, animeAnnRes, mangaAnnRes] = await Promise.all([
+    parId("catalog_anime", REL_COLS_ANIME),
+    parId("catalog_manga", REL_COLS_MANGA),
+    parAnnId("catalog_anime", REL_COLS_ANIME),
+    parAnnId("catalog_manga", REL_COLS_MANGA),
   ]);
 
   const byId = new Map();
-  for (const r of animeRes.data || []) byId.set(r.id, { ...r, _type: "ANIME" });
-  // Un id n'appartient qu'à une seule des deux tables ; en cas de doublon
-  // improbable, l'anime l'emporte (c'est le cas de très loin le plus courant).
-  for (const r of mangaRes.data || []) if (!byId.has(r.id)) byId.set(r.id, { ...r, _type: "MANGA" });
+  const byAnnId = new Map();
+  const ranger = (rows, type) => {
+    for (const r of rows || []) {
+      // Un id n'appartient qu'à une seule des deux tables ; en cas de doublon
+      // improbable, l'anime l'emporte (cas de très loin le plus courant).
+      if (!byId.has(r.id)) byId.set(r.id, { ...r, _type: type });
+      if (r.ann_id && !byAnnId.has(r.ann_id)) byAnnId.set(r.ann_id, { ...r, _type: type });
+    }
+  };
+  ranger(animeRes.data, "ANIME");
+  ranger(animeAnnRes.data, "ANIME");
+  ranger(mangaRes.data, "MANGA");
+  ranger(mangaAnnRes.data, "MANGA");
 
   for (const edge of idsToFetch) {
-    const r = byId.get(edge._rawId);
+    const r = edge._rawAnnId ? byAnnId.get(edge._rawAnnId) : byId.get(edge._rawId);
     if (r) {
       edge.node = {
         id: r.id,
         title: { romaji: r.title_romaji, english: r.title_english },
         type: r._type,
         format: r._type === "ANIME" ? r.type : "MANGA",
-        coverImage: { large: r.cover_url },
+        coverImage: { large: jaquette(r) },
         status: r.status,
         episodes: r._type === "ANIME" ? r.episodes : null,
         chapters: r._type === "ANIME" ? null : r.chapters,
       };
     }
   }
+
+  /* Une même œuvre peut être décrite des deux côtés (MyAnimeList et ANN) :
+     les doublons n'apparaissent qu'ici, une fois les ann_id traduits en
+     identifiants du catalogue. La relation MyAnimeList est listée en
+     premier, donc conservée. Les liens non résolus (œuvre absente du
+     catalogue) sont écartés plutôt que laissés en carte vide. */
+  for (const m of mediaList) {
+    const vus = new Set();
+    m.relations.edges = m.relations.edges.filter((e) => {
+      if (!e.node) return false;
+      if (vus.has(e.node.id)) return false;
+      vus.add(e.node.id);
+      return true;
+    });
+  }
   return mediaList;
 }
 
+/* Libellés ANN -> vocabulaire de relation déjà employé par le Modal. ANN
+   dit d'où vient l'œuvre ("adapted from" pointe le manga d'origine) et ce
+   qui la suit, là où MyAnimeList ne relie que des anime entre eux. */
+const ANN_REL_MAP = {
+  "adapted from": "ADAPTATION",
+  "sequel of": "PREQUEL",
+  sequel: "SEQUEL",
+  "side story of": "PARENT",
+  "side story": "SIDE_STORY",
+  "spinoff of": "PARENT",
+  spinoff: "SIDE_STORY",
+  "alternative version of": "ALTERNATIVE",
+  "alternative version": "ALTERNATIVE",
+};
+
 function attachRawRelationIds(media, row) {
-  media.relations.edges = (row.relations || []).map((r) => ({
+  const edges = (row.relations || []).map((r) => ({
     relationType: r.relation_type,
     node: null,
     _rawId: r.id,
   }));
+
+  /* Les relations MyAnimeList ne sont renseignées que sur 7,6 % des fiches,
+     et ne sortent jamais de l'anime. Celles d'ANN complètent les deux
+     manques d'un coup : elles couvrent tout ce qu'ANN connaît, et relient
+     l'anime à son manga d'origine. Elles sont désignées par ann_id, pas par
+     l'identifiant du catalogue : la résolution se fait dans
+     hydrateRelations, avec les autres. */
+  for (const r of row.ann_related || []) {
+    if (!r?.ann_id) continue;
+    edges.push({
+      relationType: ANN_REL_MAP[String(r.rel || "").toLowerCase()] || "OTHER",
+      node: null,
+      _rawId: null,
+      _rawAnnId: r.ann_id,
+    });
+  }
+
+  media.relations.edges = edges;
   return media;
 }
 
@@ -358,11 +473,17 @@ function orderByPopularity(q) {
    a "black" : verifie le 2026-09-20 sur les 30 561 fiches enrichies, zero.
    1 630 hentai passaient donc dans la recherche, l'accueil et la page saison.
 
-   Deux signaux fiables a la place :
+   Trois signaux fiables a la place :
      - la classification d'age MyAnimeList, "rx" = hentai ;
+     - la classification ANN, "AO" (adults only) — signal independant,
+       verifie le 2026-09-22 sur deux echantillons : 55 des 60 fiches
+       classees "rx" par MyAnimeList sont "AO" chez ANN, et aucune des 150
+       fiches les plus suivies ne l'est. Ne PAS elargir a "MA" (public
+       averti), qui couvre quantite de series grand public — Sakamoto Days
+       en fait partie ;
      - les genres/themes explicites, pour les fiches venues d'ANN ou du
        dataset qui n'ont aucune classification.
-   Le manga n'a pas de colonne de classification : genres et themes seuls. */
+   Le manga n'a pas de colonne age_rating : ANN, genres et themes seuls. */
 const ADULT_GENRES = ["Hentai", "Erotica", "erotica", "hentai"];
 const ADULT_TAGS = ["hentai", "erotica"];
 
@@ -371,6 +492,7 @@ function excludeAdult(q, type) {
   // jamais different de quoi que ce soit en SQL) : d'ou le `or`.
   if (type === "ANIME") q = q.or("age_rating.is.null,age_rating.neq.rx");
   return q
+    .or("ann_objectionable.is.null,ann_objectionable.neq.AO")
     .not("genres", "ov", `{${ADULT_GENRES.join(",")}}`)
     .not("tags", "ov", `{${ADULT_TAGS.join(",")}}`);
 }

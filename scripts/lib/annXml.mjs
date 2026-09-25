@@ -12,6 +12,8 @@
 //     <staff><task>Director</task><person id="3610">Masahiko Murata</person></staff>
 //     <cast lang="FR"><role>Edward Elric</role><person id="...">Arthur Pestel</person></cast>
 //     <ratings nb_votes="435" weighted_score="6.0264"/>
+//     <related-prev rel="adapted from" id="4199"/>
+//     <related-next rel="sequel" id="40558"/>
 //   </anime>
 
 const NAMED_ENTITIES = {
@@ -90,6 +92,7 @@ function parseRecord(kind, id, head, body) {
     cast: [], // [{ role, person, lang }]
     rating: null,
     ratingVotes: null,
+    related: [], // [{ ann_id, rel, direction }]
   };
 
   for (const m of body.matchAll(/<info\b([^>]*?)(?:\/>|>([\s\S]*?)<\/info>)/g)) {
@@ -169,6 +172,18 @@ function parseRecord(kind, id, head, body) {
     const a = attrs(ratings[1]);
     rec.rating = parseFloat(a.weighted_score) || parseFloat(a.bayesian_score) || null;
     rec.ratingVotes = parseInt(a.nb_votes, 10) || null;
+  }
+
+  // Œuvres liées. `related-prev` remonte vers l'origine ("adapted from" pointe
+  // le manga d'origine, "sequel of" la saison précédente), `related-next`
+  // descend vers la suite. L'id désigne une autre fiche de l'encyclopédie,
+  // anime OU manga indifféremment : c'est la seule source dont nous disposons
+  // pour le lien anime <-> manga, que MyAnimeList ne doit pas fournir.
+  for (const m of body.matchAll(/<related-(prev|next)\b([^>]*)\/>/g)) {
+    const a = attrs(m[2]);
+    const id = parseInt(a.id, 10);
+    if (!Number.isInteger(id)) continue;
+    rec.related.push({ ann_id: id, rel: a.rel || null, direction: m[1] });
   }
 
   return rec;

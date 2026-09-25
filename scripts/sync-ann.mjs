@@ -127,6 +127,23 @@ function annCommonFields(rec) {
     external_links: rec.officialSites.map((s) => ({ label: s.label, url: s.url, lang: s.lang })),
     copyright_notice: rec.copyright || null,
     ann_synced_at: new Date().toISOString(),
+
+    // Colonnes dont ANN est l'unique source : écrites telles quelles, sans
+    // passer par prefer(). Elles n'écrasent rien puisque rien d'autre ne les
+    // alimente, et c'est ce qui rend la provenance vérifiable — voir
+    // supabase_catalog_v4.sql pour le raisonnement complet.
+    ann_rating: rec.rating,
+    ann_rating_votes: rec.ratingVotes,
+    ann_cover_url: rec.pictures[0] || null,
+    ann_synopsis: rec.synopsis || null,
+    // Normalisé à l'écriture : ANN publie « OC » et « Oc » pour la même
+    // valeur, et un filtre qui compare des chaînes exactes laisserait passer
+    // la variante minuscule — c'est exactement ce qui était arrivé aux genres.
+    // Vocabulaire relevé : AA (tous publics), OC (grands enfants), TA (ados),
+    // MA (public averti), AO (adultes uniquement).
+    ann_objectionable: rec.objectionable ? String(rec.objectionable).trim().toUpperCase() : null,
+    ann_related: rec.related,
+
     _annSynopsis: rec.synopsis || null,
     _annCover: rec.pictures[0] || null,
     _annStart: start,
@@ -338,6 +355,12 @@ async function syncAnime() {
           ending_themes: rec.endingThemes,
           copyright_notice: c.copyright_notice,
           ann_synced_at: c.ann_synced_at,
+          ann_rating: c.ann_rating,
+          ann_rating_votes: c.ann_rating_votes,
+          ann_cover_url: c.ann_cover_url,
+          ann_synopsis: c.ann_synopsis,
+          ann_objectionable: c.ann_objectionable,
+          ann_related: c.ann_related,
 
           title_romaji: prefer(match, "title_romaji", rec.mainTitle || rec.name),
           synopsis: prefer(match, "synopsis", c._annSynopsis),
@@ -483,6 +506,12 @@ async function syncManga() {
           external_links: c.external_links,
           copyright_notice: c.copyright_notice,
           ann_synced_at: c.ann_synced_at,
+          ann_rating: c.ann_rating,
+          ann_rating_votes: c.ann_rating_votes,
+          ann_cover_url: c.ann_cover_url,
+          ann_synopsis: c.ann_synopsis,
+          ann_objectionable: c.ann_objectionable,
+          ann_related: c.ann_related,
           title_key: key,
 
           title_romaji: prefer(match, "title_romaji", rec.mainTitle || rec.name),
